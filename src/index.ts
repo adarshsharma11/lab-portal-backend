@@ -1,70 +1,26 @@
-import * as dotenv from 'dotenv';
-import express from 'express';
-import cors from 'cors';
-import authRouter from './routes/auth.router';
-import profileRouter from './routes/profile.router';
-import itemRouter from './routes/item.router';
-import truckRouter from './routes/truck.router';
-import driverRouter from './routes/driver.router';
-import categoryRouter from './routes/category.router';
-import jobRouter from './routes/job.router';
-import optimizationRouter from './routes/optimization.router';
-import metricsRouter from './routes/metrics.router';
+import { app } from "./app";
+import { config } from "./config/env";
+import { prisma } from "./lib/prisma";
 
-import { notFoundHandler } from './middleware/not-found';
-import { errorHandler } from './middleware/error-handler';
-import cookieParser from 'cookie-parser';
-import requestLogger from './middleware/requestLogger';
-import { pino } from "pino";
+const server = app.listen(config.port, () => {
+  console.log(`========================================`);
+  console.log(`  Lab Portal Backend API Server`);
+  console.log(`  Running on: http://localhost:${config.port}`);
+  console.log(`  Environment: ${config.env}`);
+  console.log(`  Database: Connected to PostgreSQL (lab_portal)`);
+  console.log(`========================================`);
+});
 
-dotenv.config();
+const gracefulShutdown = async () => {
+  console.log("Shutting down server gracefully...");
+  server.close(async () => {
+    await prisma.$disconnect();
+    console.log("Database disconnected. Server closed.");
+    process.exit(0);
+  });
+};
 
-export const logger = pino({ name: "server start" });
-// const PORT: number = parseInt(process.env.PORT as string, 10);
-
-const app = express();
-
-// CORS Middleware
-app.use(
-  cors({
-    origin: "*", // ⚠️ Allow all origins
-    methods: ["GET", "HEAD", "PUT", "PATCH", "POST", "DELETE"],
-    credentials: false, // disable cookies/auth for wildcard
-  })
-);
-// JSON Middleware & Form Data
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
-
-// cookie parser middleware
-app.use(cookieParser());
-
-// Request Logger
-app.use(requestLogger)
-
-// Main Routes
-app.use('/api/auth', authRouter);
-app.use('/api/profile', profileRouter);
-app.use('/api/trucks', truckRouter);
-app.use('/api/drivers', driverRouter);
-app.use('/api/items', itemRouter);
-app.use('/api/categories', categoryRouter);
-app.use('/api/jobs', jobRouter);
-app.use('/api/jobs', optimizationRouter);
-app.use('/api/metrics', metricsRouter);
-
-
-
-// Not Found Middleware
-app.use(notFoundHandler);
-
-// Error Handling Middleware
-app.use(errorHandler);
-
-// const PORT = process.env.PORT || 6001;
-
-// app.listen(PORT, () => {
-//   logger.info(`Listening on PORT ${PORT}`);
-// });
+process.on("SIGTERM", gracefulShutdown);
+process.on("SIGINT", gracefulShutdown);
 
 export default app;

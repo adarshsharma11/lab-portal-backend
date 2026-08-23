@@ -1,169 +1,504 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
 generator client {
   provider = "prisma-client-js"
 }
 
-datasource db {
-  provider = "postgres"
-  url      = env("DATABASE_URL")
-}
-
-model Truck {
-  id                  Int         @id @default(autoincrement())
-  truckName           String      @unique
-  capacityCuFt        Float
-  maxWeightLbs        Float
-  lengthFt            Float
-  widthFt             Float
-  heightFt            Float
-  truckType           TruckType
-  color               String?
-  yearOfManufacture   Int?
-  isActive            Boolean     @default(true)
-  currentStatus       TruckStatus @default(AVAILABLE)
-  restrictedLoadTypes Json?
-  gpsEnabled          Boolean     @default(true)
-  lastKnownLat        Float?
-  lastKnownLng        Float?
-  driverId            Int?        @unique
-  createdAt           DateTime    @default(now())
-  updatedAt           DateTime    @updatedAt
-  jobs                Job[]
-  driver              Driver?     @relation(fields: [driverId], references: [id])
-}
-
-model Driver {
-  id        Int       @id @default(autoincrement())
-  name      String
-  licenseNo String?
-  phone     String?
-  email     String?        
-  role      ContactRole @default(DRIVER)
-  description String?    
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
-  truckType TruckType @default(MEDIUM)
-  status    String     @default("AVAILABLE")
-  truckId   Int? 
-  jobs      Job[]
-  truck     Truck?
-  smsOptIn  Boolean   @default(true)
-  whatsappOptIn Boolean @default(true)
-}
-
-model Location {
-  id          Int      @id @default(autoincrement())
-  placeId     String   @unique
-  name        String
-  address     String
-  latitude    Float
-  longitude   Float
-  city        String?
-  state       String?
-  country     String?
-  postalCode  String?
-  isSaved     Boolean  @default(false)
-  createdById String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  jobs        Job[]
-  createdBy   User?    @relation(fields: [createdById], references: [id])
-}
-
-model Job {
-  id               Int        @id @default(autoincrement())
-  title            String
-  actionType       ActionType
-  locationId       Int?
-  priority         Int        @default(1)
-  date             DateTime?
-  earliestTime     DateTime?
-  latestTime       DateTime?
-  serviceMinutes   Int?
-  notes            String?
-  largeTruckOnly   Boolean    @default(false)
-  curfewFlag       Boolean    @default(false)
-  assignedTruckId  Int?
-  assignedDriverId Int?
-  isCompleted      Boolean    @default(false)
-  isFiction        Boolean    @default(false)
-  datePublished    DateTime   @default(now())
-  createdAt        DateTime   @default(now())
-  updatedAt        DateTime   @updatedAt
-  truckType        TruckType  @default(MEDIUM)
-  assignedDriver   Driver?    @relation(fields: [assignedDriverId], references: [id])
-  assignedTruck    Truck?     @relation(fields: [assignedTruckId], references: [id])
-  location         Location?  @relation(fields: [locationId], references: [id])
-  items            Item[]     @relation("JobItems")
-  quantityItem     Json?
-}
-
 model User {
-  id        String     @id @unique
-  fullName  String
-  username  String     @unique
-  password  String
-  email     String
-  createdAt DateTime   @default(now())
-  updatedAt DateTime   @updatedAt
-  locations Location[]
+  id           String    @id @default(uuid())
+  name         String
+  email        String    @unique
+  passwordHash String
+  role         String    @default("Technician") // Administrator, Pathologist, Technician, Admin, Receptionist, Doctor
+  initials     String?
+  active       Boolean   @default(true)
+  permissions  String[]  @default([])
+  avatar       String?
+  mobile       String?
+  dateOfBirth  String?
+  gender       String?   // Male, Female, Other
+  location     String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@map("users")
 }
 
-model ItemCategory {
-  id          Int            @id @default(autoincrement())
-  name        String         @unique
-  description String?
-  createdAt   DateTime       @default(now())
-  updatedAt   DateTime       @updatedAt
-  parentId    Int?
-  items       Item[]
-  quantity    Boolean       @default(false)
-  parent      ItemCategory?  @relation("CategoryHierarchy", fields: [parentId], references: [id])
-  children    ItemCategory[] @relation("CategoryHierarchy")
+model Patient {
+  id                String         @id @default(uuid())
+  patientCode       String         @unique
+  name              String
+  age               Int            @default(0)
+  sex               String         // Female, Male, Other
+  phone             String
+  email             String?
+  city              String?
+  state             String?
+  pincode           String?
+  address           String?
+  emergencyContact  String?
+  bloodGroup        String?
+  referringDoctorId String?
+  status            String         @default("Active") // Active, Inactive
+  dateOfBirth       String?
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+
+  referringDoctor   Doctor?        @relation(fields: [referringDoctorId], references: [id], onDelete: SetNull)
+  samples           Sample[]
+  reports           Report[]
+  appointments      Appointment[]
+  invoices          Invoice[]
+
+  @@map("patients")
 }
 
-model Item {
-  id                 Int           @id @default(autoincrement())
+model Doctor {
+  id            String         @id @default(uuid())
+  name          String
+  specialty     String
+  phone         String
+  email         String?
+  city          String?
+  gender        String?
+  experience    String?
+  description   String?
+  dateOfJoining String?
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+
+  patients      Patient[]
+  reports       Report[]
+  appointments  Appointment[]
+  invoices      Invoice[]
+
+  @@map("doctors")
+}
+
+model Supplier {
+  id               String   @id @default(uuid())
+  name             String
+  phone            String
+  city             String
+  country          String   @default("India")
+  pincode          String
+  address          String?
+  state            String?
+  description      String?
+  emergencyContact String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@map("suppliers")
+}
+
+model Sample {
+  id          String    @id @default(uuid())
+  accession   String    @unique
+  barcode     String?
+  patientId   String
+  sampleType  String?   @default("Blood") // Blood, Serum, Plasma, Urine, Other
+  collectedAt DateTime  @default(now())
+  receivedAt  DateTime?
+  receivedBy  String?
+  priority    String    @default("Routine") // Routine, Urgent, STAT
+  status      String    @default("Collected") // Collected, Received, Processing, Completed, Rejected
+  notes       String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  patient     Patient   @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  tests       Test[]
+  reports     Report[]
+
+  @@map("samples")
+}
+
+model Test {
+  id              String   @id @default(uuid())
+  code            String
+  name            String
+  department      String
+  sampleId        String?
+  sampleType      String?
+  price           Float    @default(0)
+  referenceRange  String?
+  unit            String?
+  turnaroundHours Int      @default(4)
+  status          String   @default("Active") // Active, Inactive
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  sample          Sample?  @relation(fields: [sampleId], references: [id], onDelete: SetNull)
+  results         Result[]
+
+  @@map("tests")
+}
+
+model Result {
+  id             String   @id @default(uuid())
+  testId         String
+  parameter      String
+  value          String
+  unit           String
+  referenceRange String
+  abnormalFlag   Boolean  @default(false)
+  criticalFlag   Boolean  @default(false)
+  comments       String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  test           Test     @relation(fields: [testId], references: [id], onDelete: Cascade)
+
+  @@map("results")
+}
+
+model Report {
+  id           String   @id @default(uuid())
+  reportNumber String   @unique
+  patientId    String
+  sampleId     String
+  doctorId     String
+  testIds      String[] @default([])
+  resultIds    String[] @default([])
+  department   String?
+  priority     String?
+  status       String   @default("Pending Review") // Draft, Pending Review, Approved, Rejected, Retest Requested
+  pathologist  String?
+  comments     String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  patient      Patient  @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  sample       Sample   @relation(fields: [sampleId], references: [id], onDelete: Cascade)
+  doctor       Doctor   @relation(fields: [doctorId], references: [id], onDelete: Cascade)
+
+  @@map("reports")
+}
+
+model ReportTemplate {
+  id              String   @id @default(uuid())
+  name            String
+  department      String
+  tests           String[] @default([])
+  header          String
+  footer          String
+  referenceRanges String?
+  notes           String?
+  signatory       String
+  active          Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@map("report_templates")
+}
+
+model Appointment {
+  id              String   @id @default(uuid())
+  patientId       String
+  doctorId        String
+  date            String
+  time            String
+  type            String   @default("Consultation")
+  status          String   @default("Upcoming") // Upcoming, Completed, Cancelled, Rescheduled
+  appointmentLink String?
+  createdBy       String   @default("System")
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  patient         Patient  @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  doctor          Doctor   @relation(fields: [doctorId], references: [id], onDelete: Cascade)
+
+  @@map("appointments")
+}
+
+model Invoice {
+  id            String   @id @default(uuid())
+  billNumber    String   @unique
+  patientId     String
+  doctorId      String
+  billDate      String
+  items         Json     // Array of { description: string, quantity: number, mrp: number }
+  discount      Float    @default(0)
+  sgst          Float    @default(0)
+  cgst          Float    @default(0)
+  total         Float    @default(0)
+  paymentStatus String   @default("Pending") // Paid, Pending, Partially Paid
+  addedBy       String   @default("System")
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  patient       Patient  @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  doctor        Doctor   @relation(fields: [doctorId], references: [id], onDelete: Cascade)
+
+  @@map("invoices")
+}
+
+model InventoryItem {
+  id            String   @id @default(uuid())
+  medicine      String
+  stockQuantity Int      @default(0)
+  purchasePrice Float    @default(0)
+  salePrice     Float    @default(0)
+  stockHolder   String   @default("Central Store")
+  batchNumber   String
+  expiryDate    String
+  reorderLevel  Int      @default(20)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@map("inventory_items")
+}
+
+model Instrument {
+  id                 String    @id @default(uuid())
   name               String
-  sku                String?
-  weightLbs          Float?
-  lengthIn           Float?
-  widthIn            Float?
-  heightIn           Float?
-  notes              String?
-  requiresLargeTruck Boolean       @default(false)
-  categoryId         Int?
-  quantity           Int          @default(0)
-  trackQuantity      Boolean      @default(false)
-  trackAsMachine     Boolean      @default(false)
-  createdAt          DateTime      @default(now())
-  updatedAt          DateTime      @updatedAt
-  truckType          TruckType     @default(MEDIUM)
-  category           ItemCategory? @relation(fields: [categoryId], references: [id])
-  jobs               Job[]         @relation("JobItems")
+  manufacturer       String
+  model              String
+  serialNumber       String    @unique
+  department         String
+  instrumentType     String    // Hematology Analyzer, Biochemistry Analyzer, etc.
+  status             String    @default("Online") // Online, Offline, Maintenance, Error
+  installationDate   String
+  lastMaintenance   String?
+  nextMaintenance   String?
+  connectionStatus   String    @default("Connected") // Connected, Disconnected, Connecting, Error
+  lastCommunication  String?
+  ipAddress          String?
+  location           String?
+  description        String?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  @@map("instruments")
 }
 
-enum TruckType {
-  SMALL
-  MEDIUM
-  LARGE
-  HEAVY_DUTY
+model AnalyzerResult {
+  id             String   @id @default(uuid())
+  instrumentId   String
+  instrumentName String
+  receivedAt     DateTime @default(now())
+  sampleId       String?
+  barcode        String?
+  testCode       String
+  testName       String
+  value          String
+  unit           String
+  raw            Json?
+  status         String   @default("Received") // Received, Matched, Unmatched, Error
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@map("analyzer_results")
 }
 
-enum TruckStatus {
-  AVAILABLE
-  IN_TRANSIT
-  MAINTENANCE
-  UNAVAILABLE
+model AnalyzerOrder {
+  id             String   @id @default(uuid())
+  instrumentId   String
+  instrumentName String
+  sentAt         DateTime @default(now())
+  sampleId       String
+  barcode        String
+  testCodes      String[] @default([])
+  status         String   @default("Pending") // Pending, Sent, Acknowledged, Error
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@map("analyzer_orders")
 }
 
-enum ActionType {
-  PICKUP
-  DROPOFF
+model AnalyzerIntegrationError {
+  id             String   @id @default(uuid())
+  instrumentId   String
+  instrumentName String
+  timestamp      DateTime @default(now())
+  errorType      String
+  message        String
+  acknowledged   Boolean  @default(false)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@map("analyzer_errors")
 }
-enum ContactRole {
-  DRIVER
-  FOREMAN
-  MECHANIC
-  MANAGER
-  OTHER
+
+model QCParameter {
+  id             String   @id @default(uuid())
+  analyte        String
+  instrumentId   String
+  instrumentName String?
+  controlLevel   String   // Normal, Low, High
+  mean           Float
+  sd             Float
+  acceptableMin  Float
+  acceptableMax  Float
+  unit           String
+  lotNumber      String?
+  effectiveDate  String?
+  active         Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  runs           QCRun[]
+
+  @@map("qc_parameters")
+}
+
+model QCRun {
+  id             String       @id @default(uuid())
+  runNumber      String       @unique
+  runDate        DateTime     @default(now())
+  analyte        String
+  instrumentId   String
+  instrumentName String?
+  controlLevel   String       // Normal, Low, High
+  parameterId    String
+  value          Float
+  mean           Float
+  sd             Float
+  unit           String?
+  status         String       @default("Passed") // Passed, Failed, Warning, Pending
+  zScore         Float        @default(0)
+  operatorId     String?
+  operatorName   String?
+  notes          String?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  parameter      QCParameter  @relation(fields: [parameterId], references: [id], onDelete: Cascade)
+  violations     QCViolation[]
+
+  @@map("qc_runs")
+}
+
+model QCViolation {
+  id               String    @id @default(uuid())
+  qcRunId          String
+  runDate          DateTime  @default(now())
+  analyte          String
+  instrumentId     String
+  instrumentName   String?
+  controlLevel     String    // Normal, Low, High
+  value            Float
+  expectedRange    String
+  mean             Float
+  sd               Float
+  violationType    String    // 1_2S, 1_3S, 2_2S, R_4S, 4_1S, 10_X, Shift, Trend, Out of range
+  status           String    @default("Open") // Open, Reviewed, Acknowledged, Resolved
+  correctiveAction String?
+  reviewedBy       String?
+  reviewedAt       DateTime?
+  resolvedAt       DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  qcRun            QCRun     @relation(fields: [qcRunId], references: [id], onDelete: Cascade)
+
+  @@map("qc_violations")
+}
+
+model LaboratorySetting {
+  id            String   @id @default("default")
+  name          String   @default("BLDignostics LIMS Reference Laboratory")
+  logo          String?
+  address       String   @default("142, Healthcare Avenue, Bengaluru, Karnataka 560001, India")
+  phone         String   @default("+91 80 4455 6677")
+  email         String   @default("lab@pathologylis.example")
+  website       String?  @default("https://pathologylis.example")
+  accreditation String?  @default("NABL Accredited ISO 15189:2012")
+  licenseNumber String?  @default("KAR-LAB-2024-1482")
+  updatedAt     DateTime @updatedAt
+
+  @@map("laboratory_settings")
+}
+
+model ReportSetting {
+  id                     String   @id @default("default")
+  header                 String   @default("BLDignostics LIMS Reference Laboratory")
+  logo                   String?
+  footer                 String   @default("This is a computer-generated report and does not require manual signature. Interpret clinically.")
+  signature              String?  @default("Dr. Ananya Rao, MD (Pathology)\nConsultant Pathologist")
+  reportNumberingPrefix  String   @default("RPT-")
+  reportNumberingNext    Int      @default(260822020)
+  dateFormat             String   @default("DD/MM/YYYY")
+  showLogo               Boolean  @default(true)
+  showSignatory          Boolean  @default(true)
+  autoApprovePathologist Boolean  @default(false)
+  updatedAt              DateTime @updatedAt
+
+  @@map("report_settings")
+}
+
+model ReferenceRange {
+  id           String   @id @default(uuid())
+  testCode     String
+  testName     String
+  parameter    String
+  gender       String   @default("Both") // Male, Female, Both
+  ageMin       Int?
+  ageMax       Int?
+  minimum      Float
+  maximum      Float
+  unit         String
+  criticalLow  Float?
+  criticalHigh Float?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@map("reference_ranges")
+}
+
+model UnitDefinition {
+  id               String   @id @default(uuid())
+  code             String   @unique
+  name             String
+  category         String
+  baseUnit         String?
+  conversionFactor Float?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@map("unit_definitions")
+}
+
+model NotificationSetting {
+  id                   String   @id @default("default")
+  criticalResultAlerts Boolean  @default(true)
+  pendingReportAlerts  Boolean  @default(true)
+  qcAlerts             Boolean  @default(true)
+  inventoryAlerts      Boolean  @default(true)
+  appointmentReminders Boolean  @default(true)
+  emailNotifications   Boolean  @default(true)
+  smsNotifications     Boolean  @default(false)
+  pushNotifications    Boolean  @default(true)
+  updatedAt            DateTime @updatedAt
+
+  @@map("notification_settings")
+}
+
+model SystemPreference {
+  id                 String   @id @default("default")
+  timezone           String   @default("Asia/Kolkata")
+  dateFormat         String   @default("DD/MM/YYYY")
+  timeFormat         String   @default("12h")
+  language           String   @default("English")
+  theme              String   @default("light")
+  defaultLandingPage String   @default("/dashboard")
+  resultsPerPage     Int      @default(25)
+  updatedAt          DateTime @updatedAt
+
+  @@map("system_preferences")
+}
+
+model AuditActivity {
+  id        String   @id @default(uuid())
+  type      String   // Patient registered, Sample collected, Test completed, Report approved, Critical result
+  subject   String
+  detail    String
+  time      String
+  createdAt DateTime @default(now())
+
+  @@map("audit_activities")
 }

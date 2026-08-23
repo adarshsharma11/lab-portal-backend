@@ -1,4 +1,0 @@
--- AlterTable
-ALTER TABLE "Driver"
-  ADD COLUMN "smsOptIn" BOOLEAN NOT NULL DEFAULT true,
-  ADD COLUMN "whatsappOptIn" BOOLEAN NOT NULL DEFAULT true;

@@ -1,46 +1,94 @@
-import { TuserUpdateSchema, userUpdateSchema } from '../types/zod';
-import { NextFunction, Request, Response } from 'express';
-import * as UserService from '../services/user.service';
-import { sendSuccessResponse } from '../utils/responseHandler';
-import { hashPassword } from '../utils/bcryptHandler';
+import { Request, Response, NextFunction } from "express";
+import { prisma } from "../lib/prisma";
+import { AuthenticatedRequest } from "../middleware/auth.middleware";
 
-export const getUserProfile = async (request: Request, response: Response, next: NextFunction) => {
+export const getProfile = async (req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> => {
   try {
-    const user = {
-      id: request.user?.id,
-      fullName: request.user?.fullName,
-      username: request.user?.username,
-      email: request.user?.email,
-    };
-    return sendSuccessResponse(response, user);
-  } catch (error) {
-    next(error);
-  }
-};
+    let userId = req.user?.id;
 
-export const updateUserProfile = async (request: Request, response: Response, next: NextFunction) => {
-  try {
-    let userId = '';
-    if (request.user) {
-      userId = request.user?.id;
+    if (!userId) {
+      // Default to admin user for dev/demo if not authenticated
+      const admin = await prisma.user.findFirst({ where: { role: "Admin" } });
+      userId = admin?.id;
     }
-    const data: TuserUpdateSchema = request.body;
-    const password = data.password;
-    const hashedPassword = await hashPassword(password);
-    const dataWithHash = { ...data, password: hashedPassword };
 
-    const user = await UserService.updateUserByID(userId, dataWithHash);
-    return sendSuccessResponse(response, user);
+    if (!userId) {
+      res.status(404).json({ message: "Profile not found" });
+      return;
+    }
+
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        role: true,
+        initials: true,
+        active: true,
+        permissions: true,
+        avatar: true,
+        mobile: true,
+        dateOfBirth: true,
+        gender: true,
+        location: true,
+      },
+    });
+
+    res.json({ data: user });
   } catch (error) {
     next(error);
   }
 };
 
-export const validateUpdateUserProfile = (request: Request, response: Response, next: NextFunction) => {
+export const updateProfile = async (req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> => {
   try {
-    const data = request.body;
-    userUpdateSchema.parse(data);
-    next();
+    let userId = req.user?.id;
+    if (!userId) {
+      const admin = await prisma.user.findFirst({ where: { role: "Admin" } });
+      userId = admin?.id;
+    }
+
+    if (!userId) {
+      res.status(404).json({ message: "User not found" });
+      return;
+    }
+
+    const data = req.body;
+    let initials = data.initials;
+    if (!initials && data.name) {
+      initials = data.name.split(" ").map((n: string) => n[0]).slice(0, 2).join("").toUpperCase();
+    }
+
+    const updated = await prisma.user.update({
+      where: { id: userId },
+      data: {
+        name: data.name,
+        email: data.email ? data.email.toLowerCase().trim() : undefined,
+        initials,
+        avatar: data.avatar,
+        mobile: data.mobile,
+        dateOfBirth: data.dateOfBirth,
+        gender: data.gender,
+        location: data.location,
+      },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        role: true,
+        initials: true,
+        active: true,
+        permissions: true,
+        avatar: true,
+        mobile: true,
+        dateOfBirth: true,
+        gender: true,
+        location: true,
+      },
+    });
+
+    res.json({ data: updated });
   } catch (error) {
     next(error);
   }

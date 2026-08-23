@@ -1,0 +1,112 @@
+import { Request, Response, NextFunction } from "express";
+import { verifyToken, JwtPayload } from "../utils/auth";
+import { prisma } from "../lib/prisma";
+
+export interface AuthenticatedRequest extends Request {
+  user?: {
+    id: string;
+    name: string;
+    email: string;
+    role: string;
+    initials: string | null;
+    permissions: string[];
+  };
+}
+
+export const protectAuth = async (
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith("Bearer ")) {
+      res.status(401).json({ message: "Authentication token is required." });
+      return;
+    }
+
+    const token = authHeader.split(" ")[1];
+    if (!token) {
+      res.status(401).json({ message: "Invalid authorization format." });
+      return;
+    }
+
+    const payload: JwtPayload = verifyToken(token);
+    const user = await prisma.user.findUnique({
+      where: { id: payload.userId },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        role: true,
+        initials: true,
+        permissions: true,
+        active: true,
+      },
+    });
+
+    if (!user || !user.active) {
+      res.status(401).json({ message: "User account not found or inactive." });
+      return;
+    }
+
+    req.user = user;
+    next();
+  } catch (error) {
+    res.status(401).json({ message: "Invalid or expired session token." });
+  }
+};
+
+export const optionalAuth = async (
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (authHeader && authHeader.startsWith("Bearer ")) {
+      const token = authHeader.split(" ")[1];
+      if (token) {
+        const payload: JwtPayload = verifyToken(token);
+        const user = await prisma.user.findUnique({
+          where: { id: payload.userId },
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            role: true,
+            initials: true,
+            permissions: true,
+            active: true,
+          },
+        });
+        if (user && user.active) {
+          req.user = user;
+        }
+      }
+    }
+  } catch {
+    // Ignore invalid token in optionalAuth
+  }
+  next();
+};
+
+export const requireRoles = (...allowedRoles: string[]) => {
+  return (req: AuthenticatedRequest, res: Response, next: NextFunction): void => {
+    if (!req.user) {
+      res.status(401).json({ message: "Authentication required." });
+      return;
+    }
+
+    if (
+      req.user.role === "Admin" ||
+      req.user.role === "Administrator" ||
+      allowedRoles.includes(req.user.role)
+    ) {
+      next();
+      return;
+    }
+
+    res.status(403).json({ message: "Permission denied for this role." });
+  };
+};
