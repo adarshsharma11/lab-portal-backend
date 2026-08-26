@@ -37,20 +37,37 @@ export const getById = async (req: Request, res: Response, next: NextFunction): 
 export const create = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
     const data = req.body;
-    let testId = data.testId;
+    let test = null;
 
-    if (!testId) {
-      const firstTest = await prisma.test.findFirst();
-      if (firstTest) testId = firstTest.id;
+    if (data.testId && typeof data.testId === "string" && data.testId.trim()) {
+      const tid = data.testId.trim();
+      test = await prisma.test.findFirst({
+        where: {
+          OR: [
+            { id: tid },
+            { code: { equals: tid, mode: "insensitive" } },
+            { name: { contains: tid, mode: "insensitive" } },
+          ],
+        },
+      });
+    }
+
+    if (!test) {
+      test = await prisma.test.findFirst();
+    }
+
+    if (!test) {
+      res.status(400).json({ message: "No test catalog found. Please create a test first." });
+      return;
     }
 
     const created = await prisma.result.create({
       data: {
-        testId,
-        parameter: data.parameter,
-        value: String(data.value),
-        unit: data.unit || "",
-        referenceRange: data.referenceRange || "",
+        testId: test.id,
+        parameter: data.parameter || test.name,
+        value: String(data.value ?? ""),
+        unit: data.unit || test.unit || "",
+        referenceRange: data.referenceRange || test.referenceRange || "",
         abnormalFlag: Boolean(data.abnormalFlag),
         criticalFlag: Boolean(data.criticalFlag),
         comments: data.comments || null,
@@ -78,9 +95,26 @@ export const update = async (req: Request, res: Response, next: NextFunction): P
   try {
     const { id } = req.params;
     const data = req.body;
+
+    let testIdUpdate: string | undefined = undefined;
+    if (data.testId && typeof data.testId === "string" && data.testId.trim()) {
+      const tid = data.testId.trim();
+      const test = await prisma.test.findFirst({
+        where: {
+          OR: [
+            { id: tid },
+            { code: { equals: tid, mode: "insensitive" } },
+            { name: { contains: tid, mode: "insensitive" } },
+          ],
+        },
+      });
+      if (test) testIdUpdate = test.id;
+    }
+
     const updated = await prisma.result.update({
       where: { id },
       data: {
+        testId: testIdUpdate,
         parameter: data.parameter,
         value: data.value !== undefined ? String(data.value) : undefined,
         unit: data.unit,

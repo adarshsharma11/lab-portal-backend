@@ -89,6 +89,11 @@ export const login = async (req: Request, res: Response, next: NextFunction): Pr
 
     const user = await prisma.user.findUnique({
       where: { email: email.toLowerCase().trim() },
+      include: {
+        franchise: {
+          select: { id: true, name: true, code: true, city: true, status: true },
+        },
+      },
     });
 
     if (!user) {
@@ -138,6 +143,11 @@ export const me = async (req: AuthenticatedRequest, res: Response, next: NextFun
 
     const user = await prisma.user.findUnique({
       where: { id: req.user.id },
+      include: {
+        franchise: {
+          select: { id: true, name: true, code: true, city: true, status: true },
+        },
+      },
     });
 
     if (!user) {

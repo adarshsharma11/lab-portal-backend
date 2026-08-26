@@ -36,35 +36,56 @@ export const getById = async (req: Request, res: Response, next: NextFunction): 
 export const create = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
     const data = req.body;
-    let patientId = data.patientId;
-    let doctorId = data.doctorId;
+    let patient = null;
 
-    if (patientId) {
-      const p = await prisma.patient.findFirst({
-        where: { OR: [{ id: patientId }, { patientCode: patientId }] },
+    if (data.patientId && typeof data.patientId === "string" && data.patientId.trim()) {
+      const pid = data.patientId.trim();
+      patient = await prisma.patient.findFirst({
+        where: {
+          OR: [
+            { id: pid },
+            { patientCode: { equals: pid, mode: "insensitive" } },
+            { name: { contains: pid, mode: "insensitive" } },
+          ],
+        },
       });
-      if (p) patientId = p.id;
-    }
-    if (!patientId) {
-      const p = await prisma.patient.findFirst();
-      if (p) patientId = p.id;
     }
 
-    if (doctorId) {
-      const d = await prisma.doctor.findFirst({
-        where: { OR: [{ id: doctorId }, { name: { contains: doctorId, mode: "insensitive" } }] },
-      });
-      if (d) doctorId = d.id;
+    if (!patient) {
+      patient = await prisma.patient.findFirst();
     }
-    if (!doctorId) {
-      const d = await prisma.doctor.findFirst();
-      if (d) doctorId = d.id;
+
+    if (!patient) {
+      res.status(400).json({ message: "No registered patient found. Please register a patient first." });
+      return;
+    }
+
+    let doctor = null;
+    if (data.doctorId && typeof data.doctorId === "string" && data.doctorId.trim()) {
+      const did = data.doctorId.trim();
+      doctor = await prisma.doctor.findFirst({
+        where: {
+          OR: [
+            { id: did },
+            { name: { contains: did, mode: "insensitive" } },
+          ],
+        },
+      });
+    }
+
+    if (!doctor) {
+      doctor = await prisma.doctor.findFirst();
+    }
+
+    if (!doctor) {
+      res.status(400).json({ message: "No registered doctor found. Please add a doctor first." });
+      return;
     }
 
     const created = await prisma.appointment.create({
       data: {
-        patientId,
-        doctorId,
+        patientId: patient.id,
+        doctorId: doctor.id,
         date: data.date || new Date().toISOString().slice(0, 10),
         time: data.time || "10:00",
         type: data.type || "Consultation",
@@ -84,11 +105,41 @@ export const update = async (req: Request, res: Response, next: NextFunction): P
   try {
     const { id } = req.params;
     const data = req.body;
+
+    let patientIdUpdate: string | undefined = undefined;
+    if (data.patientId && typeof data.patientId === "string" && data.patientId.trim()) {
+      const pid = data.patientId.trim();
+      const patient = await prisma.patient.findFirst({
+        where: {
+          OR: [
+            { id: pid },
+            { patientCode: { equals: pid, mode: "insensitive" } },
+            { name: { contains: pid, mode: "insensitive" } },
+          ],
+        },
+      });
+      if (patient) patientIdUpdate = patient.id;
+    }
+
+    let doctorIdUpdate: string | undefined = undefined;
+    if (data.doctorId && typeof data.doctorId === "string" && data.doctorId.trim()) {
+      const did = data.doctorId.trim();
+      const doctor = await prisma.doctor.findFirst({
+        where: {
+          OR: [
+            { id: did },
+            { name: { contains: did, mode: "insensitive" } },
+          ],
+        },
+      });
+      if (doctor) doctorIdUpdate = doctor.id;
+    }
+
     const updated = await prisma.appointment.update({
       where: { id },
       data: {
-        patientId: data.patientId,
-        doctorId: data.doctorId,
+        patientId: patientIdUpdate,
+        doctorId: doctorIdUpdate,
         date: data.date,
         time: data.time,
         type: data.type,

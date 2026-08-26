@@ -21,7 +21,7 @@ Backend REST API for the Pathology Laboratory Information Management System (LIS
 Make sure you have the following installed on your machine:
 - [Node.js](https://nodejs.org/) (version 18.x or higher)
 - [npm](https://www.npmjs.com/) (bundled with Node.js)
-- [PostgreSQL](https://www.postgresql.org/) database server (local or hosted, e.g., Supabase, Neon, Railway, RDS)
+- [PostgreSQL](https://www.postgresql.org/) database server (local or hosted, ., Supabase, Neon, Railway, RDS)
 
 ---
 

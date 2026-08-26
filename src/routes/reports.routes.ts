@@ -6,6 +6,7 @@ const router = Router();
 
 // Templates routes must be before /:id to avoid ID conflict
 router.get("/templates", optionalAuth, ReportsController.listTemplates);
+router.get("/templates/:id", optionalAuth, ReportsController.getTemplateById);
 router.post("/templates", optionalAuth, ReportsController.createTemplate);
 router.put("/templates/:id", optionalAuth, ReportsController.updateTemplate);
 router.delete("/templates/:id", optionalAuth, ReportsController.deleteTemplate);

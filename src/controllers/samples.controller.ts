@@ -42,24 +42,57 @@ export const getById = async (req: Request, res: Response, next: NextFunction): 
 export const create = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
     const data = req.body;
-    let patientId = data.patientId;
+    let patient = null;
 
-    if (!patientId) {
-      const firstPatient = await prisma.patient.findFirst();
-      if (firstPatient) patientId = firstPatient.id;
+    if (data.patientId && typeof data.patientId === "string" && data.patientId.trim()) {
+      const pid = data.patientId.trim();
+      patient = await prisma.patient.findFirst({
+        where: {
+          OR: [
+            { id: pid },
+            { patientCode: { equals: pid, mode: "insensitive" } },
+            { name: { contains: pid, mode: "insensitive" } },
+          ],
+        },
+      });
     }
 
-    const accession = data.accession || `LIS-${Date.now().toString().slice(-6)}`;
-    const barcode = data.barcode || `BC${Date.now()}`;
+    if (!patient) {
+      patient = await prisma.patient.findFirst();
+    }
+
+    if (!patient) {
+      res.status(400).json({ message: "No registered patient found. Please register a patient before creating a sample." });
+      return;
+    }
+
+    const accession = data.accession && data.accession.trim()
+      ? data.accession.trim()
+      : `LIS-${Date.now().toString().slice(-6)}`;
+    const barcode = data.barcode && data.barcode.trim()
+      ? data.barcode.trim()
+      : `BC${Date.now()}`;
+
+    let collectedAt = new Date();
+    if (data.collectedAt) {
+      const parsed = new Date(data.collectedAt);
+      if (!isNaN(parsed.getTime())) collectedAt = parsed;
+    }
+
+    let receivedAt: Date | null = null;
+    if (data.receivedAt) {
+      const parsed = new Date(data.receivedAt);
+      if (!isNaN(parsed.getTime())) receivedAt = parsed;
+    }
 
     const created = await prisma.sample.create({
       data: {
         accession,
         barcode,
-        patientId,
+        patientId: patient.id,
         sampleType: data.sampleType || "Blood",
-        collectedAt: data.collectedAt ? new Date(data.collectedAt) : new Date(),
-        receivedAt: data.receivedAt ? new Date(data.receivedAt) : null,
+        collectedAt,
+        receivedAt,
         receivedBy: data.receivedBy || null,
         priority: data.priority || "Routine",
         status: data.status || "Collected",
@@ -87,15 +120,47 @@ export const update = async (req: Request, res: Response, next: NextFunction): P
   try {
     const { id } = req.params;
     const data = req.body;
+
+    let patientIdUpdate: string | undefined = undefined;
+    if (data.patientId && typeof data.patientId === "string" && data.patientId.trim()) {
+      const pid = data.patientId.trim();
+      const patient = await prisma.patient.findFirst({
+        where: {
+          OR: [
+            { id: pid },
+            { patientCode: { equals: pid, mode: "insensitive" } },
+            { name: { contains: pid, mode: "insensitive" } },
+          ],
+        },
+      });
+      if (patient) patientIdUpdate = patient.id;
+    }
+
+    let collectedAtUpdate: Date | undefined = undefined;
+    if (data.collectedAt) {
+      const parsed = new Date(data.collectedAt);
+      if (!isNaN(parsed.getTime())) collectedAtUpdate = parsed;
+    }
+
+    let receivedAtUpdate: Date | null | undefined = undefined;
+    if (data.receivedAt !== undefined) {
+      if (!data.receivedAt) {
+        receivedAtUpdate = null;
+      } else {
+        const parsed = new Date(data.receivedAt);
+        if (!isNaN(parsed.getTime())) receivedAtUpdate = parsed;
+      }
+    }
+
     const updated = await prisma.sample.update({
       where: { id },
       data: {
         accession: data.accession,
         barcode: data.barcode,
-        patientId: data.patientId,
+        patientId: patientIdUpdate,
         sampleType: data.sampleType,
-        collectedAt: data.collectedAt ? new Date(data.collectedAt) : undefined,
-        receivedAt: data.receivedAt ? new Date(data.receivedAt) : undefined,
+        collectedAt: collectedAtUpdate,
+        receivedAt: receivedAtUpdate,
         receivedBy: data.receivedBy,
         priority: data.priority,
         status: data.status,

@@ -15,6 +15,9 @@ export const list = async (req: Request, res: Response, next: NextFunction): Pro
             ],
           }
         : undefined,
+      include: {
+        referringDoctor: { select: { id: true, name: true } },
+      },
       orderBy: { createdAt: "desc" },
     });
     res.json({ data: patients });
@@ -29,6 +32,7 @@ export const getById = async (req: Request, res: Response, next: NextFunction): 
     const patient = await prisma.patient.findUnique({
       where: { id },
       include: {
+        referringDoctor: true,
         samples: true,
         reports: true,
         appointments: true,
@@ -57,9 +61,24 @@ export const create = async (req: Request, res: Response, next: NextFunction): P
       return;
     }
 
-    const patientCode = data.patientCode && data.patientCode !== "PT-"
-      ? data.patientCode
+    const patientCode = data.patientCode && data.patientCode !== "PT-" && data.patientCode.trim()
+      ? data.patientCode.trim()
       : `PT-${Math.floor(10000 + Math.random() * 90000)}`;
+
+    let referringDoctorId: string | null = null;
+    if (data.referringDoctorId && typeof data.referringDoctorId === "string" && data.referringDoctorId.trim()) {
+      const doc = await prisma.doctor.findFirst({
+        where: {
+          OR: [
+            { id: data.referringDoctorId.trim() },
+            { name: { contains: data.referringDoctorId.trim(), mode: "insensitive" } },
+          ],
+        },
+      });
+      if (doc) {
+        referringDoctorId = doc.id;
+      }
+    }
 
     const created = await prisma.patient.create({
       data: {
@@ -67,15 +86,15 @@ export const create = async (req: Request, res: Response, next: NextFunction): P
         name: data.name.trim(),
         age: Number(data.age) || 30,
         sex: data.sex || "Female",
-        phone: data.phone || "",
-        email: data.email || null,
+        phone: data.phone.trim(),
+        email: data.email ? data.email.trim() : null,
         city: data.city || null,
         state: data.state || null,
         pincode: data.pincode || null,
         address: data.address || null,
         emergencyContact: data.emergencyContact || null,
         bloodGroup: data.bloodGroup || null,
-        referringDoctorId: data.referringDoctorId || null,
+        referringDoctorId,
         status: data.status || "Active",
         dateOfBirth: data.dateOfBirth || null,
       },
@@ -102,23 +121,40 @@ export const update = async (req: Request, res: Response, next: NextFunction): P
     const { id } = req.params;
     const data = req.body;
 
+    let referringDoctorIdUpdate: string | null | undefined = undefined;
+    if (data.referringDoctorId !== undefined) {
+      if (!data.referringDoctorId || (typeof data.referringDoctorId === "string" && !data.referringDoctorId.trim())) {
+        referringDoctorIdUpdate = null;
+      } else {
+        const doc = await prisma.doctor.findFirst({
+          where: {
+            OR: [
+              { id: String(data.referringDoctorId).trim() },
+              { name: { contains: String(data.referringDoctorId).trim(), mode: "insensitive" } },
+            ],
+          },
+        });
+        referringDoctorIdUpdate = doc ? doc.id : null;
+      }
+    }
+
     const updated = await prisma.patient.update({
       where: { id },
       data: {
-        name: data.name,
+        name: data.name ? data.name.trim() : undefined,
         age: data.age !== undefined ? Number(data.age) : undefined,
         sex: data.sex,
-        phone: data.phone,
-        email: data.email,
-        city: data.city,
-        state: data.state,
-        pincode: data.pincode,
-        address: data.address,
-        emergencyContact: data.emergencyContact,
-        bloodGroup: data.bloodGroup,
-        referringDoctorId: data.referringDoctorId,
-        status: data.status,
-        dateOfBirth: data.dateOfBirth,
+        phone: data.phone ? data.phone.trim() : undefined,
+        email: data.email !== undefined ? (data.email ? data.email.trim() : null) : undefined,
+        city: data.city !== undefined ? data.city : undefined,
+        state: data.state !== undefined ? data.state : undefined,
+        pincode: data.pincode !== undefined ? data.pincode : undefined,
+        address: data.address !== undefined ? data.address : undefined,
+        emergencyContact: data.emergencyContact !== undefined ? data.emergencyContact : undefined,
+        bloodGroup: data.bloodGroup !== undefined ? data.bloodGroup : undefined,
+        referringDoctorId: referringDoctorIdUpdate,
+        status: data.status !== undefined ? data.status : undefined,
+        dateOfBirth: data.dateOfBirth !== undefined ? data.dateOfBirth : undefined,
       },
     });
 

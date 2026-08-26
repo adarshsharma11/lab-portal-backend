@@ -7,22 +7,57 @@ generator client {
   provider = "prisma-client-js"
 }
 
+model Franchise {
+  id             String          @id @default(uuid())
+  code           String          @unique // e.g. FR-BLR-01
+  name           String
+  ownerName      String
+  email          String          @unique
+  phone          String
+  emergencyPhone String?
+  address        String?
+  city           String
+  state          String
+  country        String          @default("India")
+  pincode        String?
+  licenseNumber  String?
+  gstNumber      String?
+  revenueShare   Float           @default(0)
+  status         String          @default("Active") // Active, Inactive, Suspended
+  notes          String?
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+
+  users          User[]
+  patients       Patient[]
+  samples        Sample[]
+  reports        Report[]
+  appointments   Appointment[]
+  invoices       Invoice[]
+  inventoryItems InventoryItem[]
+
+  @@map("franchises")
+}
+
 model User {
-  id           String    @id @default(uuid())
+  id           String     @id @default(uuid())
   name         String
-  email        String    @unique
+  email        String     @unique
   passwordHash String
-  role         String    @default("Technician") // Administrator, Pathologist, Technician, Admin, Receptionist, Doctor
+  role         String     @default("Technician") // Administrator, Pathologist, Technician, Admin, Receptionist, Doctor, Franchise
   initials     String?
-  active       Boolean   @default(true)
-  permissions  String[]  @default([])
+  active       Boolean    @default(true)
+  permissions  String[]   @default([])
   avatar       String?
   mobile       String?
   dateOfBirth  String?
-  gender       String?   // Male, Female, Other
+  gender       String?    // Male, Female, Other
   location     String?
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
+  franchiseId  String?
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  franchise    Franchise? @relation(fields: [franchiseId], references: [id], onDelete: SetNull)
 
   @@map("users")
 }
@@ -42,12 +77,14 @@ model Patient {
   emergencyContact  String?
   bloodGroup        String?
   referringDoctorId String?
+  franchiseId       String?
   status            String         @default("Active") // Active, Inactive
   dateOfBirth       String?
   createdAt         DateTime       @default(now())
   updatedAt         DateTime       @updatedAt
 
   referringDoctor   Doctor?        @relation(fields: [referringDoctorId], references: [id], onDelete: SetNull)
+  franchise         Franchise?     @relation(fields: [franchiseId], references: [id], onDelete: SetNull)
   samples           Sample[]
   reports           Report[]
   appointments      Appointment[]
@@ -96,21 +133,23 @@ model Supplier {
 }
 
 model Sample {
-  id          String    @id @default(uuid())
-  accession   String    @unique
+  id          String     @id @default(uuid())
+  accession   String     @unique
   barcode     String?
   patientId   String
-  sampleType  String?   @default("Blood") // Blood, Serum, Plasma, Urine, Other
-  collectedAt DateTime  @default(now())
+  franchiseId String?
+  sampleType  String?    @default("Blood") // Blood, Serum, Plasma, Urine, Other
+  collectedAt DateTime   @default(now())
   receivedAt  DateTime?
   receivedBy  String?
-  priority    String    @default("Routine") // Routine, Urgent, STAT
-  status      String    @default("Collected") // Collected, Received, Processing, Completed, Rejected
+  priority    String     @default("Routine") // Routine, Urgent, STAT
+  status      String     @default("Collected") // Collected, Received, Processing, Completed, Rejected
   notes       String?
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
 
-  patient     Patient   @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  patient     Patient    @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  franchise   Franchise? @relation(fields: [franchiseId], references: [id], onDelete: SetNull)
   tests       Test[]
   reports     Report[]
 
@@ -157,24 +196,26 @@ model Result {
 }
 
 model Report {
-  id           String   @id @default(uuid())
-  reportNumber String   @unique
+  id           String     @id @default(uuid())
+  reportNumber String     @unique
   patientId    String
   sampleId     String
   doctorId     String
-  testIds      String[] @default([])
-  resultIds    String[] @default([])
+  franchiseId  String?
+  testIds      String[]   @default([])
+  resultIds    String[]   @default([])
   department   String?
   priority     String?
-  status       String   @default("Pending Review") // Draft, Pending Review, Approved, Rejected, Retest Requested
+  status       String     @default("Pending Review") // Draft, Pending Review, Approved, Rejected, Retest Requested
   pathologist  String?
   comments     String?
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
 
-  patient      Patient  @relation(fields: [patientId], references: [id], onDelete: Cascade)
-  sample       Sample   @relation(fields: [sampleId], references: [id], onDelete: Cascade)
-  doctor       Doctor   @relation(fields: [doctorId], references: [id], onDelete: Cascade)
+  patient      Patient    @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  sample       Sample     @relation(fields: [sampleId], references: [id], onDelete: Cascade)
+  doctor       Doctor     @relation(fields: [doctorId], references: [id], onDelete: Cascade)
+  franchise    Franchise? @relation(fields: [franchiseId], references: [id], onDelete: SetNull)
 
   @@map("reports")
 }
@@ -197,58 +238,65 @@ model ReportTemplate {
 }
 
 model Appointment {
-  id              String   @id @default(uuid())
+  id              String     @id @default(uuid())
   patientId       String
   doctorId        String
+  franchiseId     String?
   date            String
   time            String
-  type            String   @default("Consultation")
-  status          String   @default("Upcoming") // Upcoming, Completed, Cancelled, Rescheduled
+  type            String     @default("Consultation")
+  status          String     @default("Upcoming") // Upcoming, Completed, Cancelled, Rescheduled
   appointmentLink String?
-  createdBy       String   @default("System")
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  createdBy       String     @default("System")
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
 
-  patient         Patient  @relation(fields: [patientId], references: [id], onDelete: Cascade)
-  doctor          Doctor   @relation(fields: [doctorId], references: [id], onDelete: Cascade)
+  patient         Patient    @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  doctor          Doctor     @relation(fields: [doctorId], references: [id], onDelete: Cascade)
+  franchise       Franchise? @relation(fields: [franchiseId], references: [id], onDelete: SetNull)
 
   @@map("appointments")
 }
 
 model Invoice {
-  id            String   @id @default(uuid())
-  billNumber    String   @unique
+  id            String     @id @default(uuid())
+  billNumber    String     @unique
   patientId     String
   doctorId      String
+  franchiseId   String?
   billDate      String
-  items         Json     // Array of { description: string, quantity: number, mrp: number }
-  discount      Float    @default(0)
-  sgst          Float    @default(0)
-  cgst          Float    @default(0)
-  total         Float    @default(0)
-  paymentStatus String   @default("Pending") // Paid, Pending, Partially Paid
-  addedBy       String   @default("System")
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  items         Json       // Array of { description: string, quantity: number, mrp: number }
+  discount      Float      @default(0)
+  sgst          Float      @default(0)
+  cgst          Float      @default(0)
+  total         Float      @default(0)
+  paymentStatus String     @default("Pending") // Paid, Pending, Partially Paid
+  addedBy       String     @default("System")
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
 
-  patient       Patient  @relation(fields: [patientId], references: [id], onDelete: Cascade)
-  doctor        Doctor   @relation(fields: [doctorId], references: [id], onDelete: Cascade)
+  patient       Patient    @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  doctor        Doctor     @relation(fields: [doctorId], references: [id], onDelete: Cascade)
+  franchise     Franchise? @relation(fields: [franchiseId], references: [id], onDelete: SetNull)
 
   @@map("invoices")
 }
 
 model InventoryItem {
-  id            String   @id @default(uuid())
+  id            String     @id @default(uuid())
   medicine      String
-  stockQuantity Int      @default(0)
-  purchasePrice Float    @default(0)
-  salePrice     Float    @default(0)
-  stockHolder   String   @default("Central Store")
+  stockQuantity Int        @default(0)
+  purchasePrice Float        @default(0)
+  salePrice     Float        @default(0)
+  stockHolder   String     @default("Central Store")
   batchNumber   String
   expiryDate    String
-  reorderLevel  Int      @default(20)
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  reorderLevel  Int        @default(20)
+  franchiseId   String?
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+
+  franchise     Franchise? @relation(fields: [franchiseId], references: [id], onDelete: SetNull)
 
   @@map("inventory_items")
 }

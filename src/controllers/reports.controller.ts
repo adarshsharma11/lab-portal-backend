@@ -47,31 +47,73 @@ export const getReportById = async (req: Request, res: Response, next: NextFunct
 export const createReport = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
     const data = req.body;
-    let patientId = data.patientId;
-    let sampleId = data.sampleId;
-    let doctorId = data.doctorId;
+    let patient = null;
+    let sample = null;
+    let doctor = null;
 
-    if (!patientId) {
-      const p = await prisma.patient.findFirst();
-      if (p) patientId = p.id;
+    if (data.patientId && typeof data.patientId === "string" && data.patientId.trim()) {
+      const pid = data.patientId.trim();
+      patient = await prisma.patient.findFirst({
+        where: {
+          OR: [
+            { id: pid },
+            { patientCode: { equals: pid, mode: "insensitive" } },
+            { name: { contains: pid, mode: "insensitive" } },
+          ],
+        },
+      });
     }
-    if (!sampleId) {
-      const s = await prisma.sample.findFirst();
-      if (s) sampleId = s.id;
-    }
-    if (!doctorId) {
-      const d = await prisma.doctor.findFirst();
-      if (d) doctorId = d.id;
+    if (!patient) patient = await prisma.patient.findFirst();
+    if (!patient) {
+      res.status(400).json({ message: "No patient found. Please create a patient first." });
+      return;
     }
 
-    const reportNumber = data.reportNumber || `RPT-${Date.now().toString().slice(-6)}`;
+    if (data.sampleId && typeof data.sampleId === "string" && data.sampleId.trim()) {
+      const sid = data.sampleId.trim();
+      sample = await prisma.sample.findFirst({
+        where: {
+          OR: [
+            { id: sid },
+            { accession: { equals: sid, mode: "insensitive" } },
+            { barcode: { equals: sid, mode: "insensitive" } },
+          ],
+        },
+      });
+    }
+    if (!sample) sample = await prisma.sample.findFirst();
+    if (!sample) {
+      res.status(400).json({ message: "No sample found. Please create a sample first." });
+      return;
+    }
+
+    if (data.doctorId && typeof data.doctorId === "string" && data.doctorId.trim()) {
+      const did = data.doctorId.trim();
+      doctor = await prisma.doctor.findFirst({
+        where: {
+          OR: [
+            { id: did },
+            { name: { contains: did, mode: "insensitive" } },
+          ],
+        },
+      });
+    }
+    if (!doctor) doctor = await prisma.doctor.findFirst();
+    if (!doctor) {
+      res.status(400).json({ message: "No doctor found. Please create a doctor first." });
+      return;
+    }
+
+    const reportNumber = data.reportNumber && data.reportNumber.trim()
+      ? data.reportNumber.trim()
+      : `RPT-${Date.now().toString().slice(-6)}`;
 
     const created = await prisma.report.create({
       data: {
         reportNumber,
-        patientId,
-        sampleId,
-        doctorId,
+        patientId: patient.id,
+        sampleId: sample.id,
+        doctorId: doctor.id,
         testIds: Array.isArray(data.testIds) ? data.testIds : [],
         resultIds: Array.isArray(data.resultIds) ? data.resultIds : [],
         department: data.department || "Hematology",
@@ -145,18 +187,39 @@ export const listTemplates = async (_req: Request, res: Response, next: NextFunc
   }
 };
 
+export const getTemplateById = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    const { id } = req.params;
+    const template = await prisma.reportTemplate.findUnique({
+      where: { id },
+    });
+    if (!template) {
+      res.status(404).json({ message: "Report template not found" });
+      return;
+    }
+    res.json({ data: template });
+  } catch (error) {
+    next(error);
+  }
+};
+
 export const createTemplate = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
     const data = req.body;
+    if (!data.name || typeof data.name !== "string" || !data.name.trim()) {
+      res.status(400).json({ message: "Template name is required" });
+      return;
+    }
+
     const tests = Array.isArray(data.tests)
       ? data.tests
       : typeof data.tests === "string"
-      ? data.tests.split(",").map((t: string) => t.trim())
+      ? data.tests.split(",").map((t: string) => t.trim()).filter(Boolean)
       : [];
 
     const created = await prisma.reportTemplate.create({
       data: {
-        name: data.name,
+        name: data.name.trim(),
         department: data.department || "Hematology",
         tests,
         header: data.header || "BLDignostics LIMS Reference Laboratory",
@@ -181,22 +244,22 @@ export const updateTemplate = async (req: Request, res: Response, next: NextFunc
       ? Array.isArray(data.tests)
         ? data.tests
         : typeof data.tests === "string"
-        ? data.tests.split(",").map((t: string) => t.trim())
+        ? data.tests.split(",").map((t: string) => t.trim()).filter(Boolean)
         : undefined
       : undefined;
 
     const updated = await prisma.reportTemplate.update({
       where: { id },
       data: {
-        name: data.name,
+        name: data.name ? data.name.trim() : undefined,
         department: data.department,
         tests,
         header: data.header,
         footer: data.footer,
-        referenceRanges: data.referenceRanges,
-        notes: data.notes,
+        referenceRanges: data.referenceRanges !== undefined ? data.referenceRanges : undefined,
+        notes: data.notes !== undefined ? data.notes : undefined,
         signatory: data.signatory,
-        active: data.active,
+        active: data.active !== undefined ? Boolean(data.active) : undefined,
       },
     });
     res.json({ data: updated });

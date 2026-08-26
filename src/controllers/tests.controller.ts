@@ -52,16 +52,18 @@ export const create = async (req: Request, res: Response, next: NextFunction): P
       return;
     }
 
-    let sampleId = data.sampleId;
-    if (sampleId) {
+    let sampleId: string | null = null;
+    if (data.sampleId && typeof data.sampleId === "string" && data.sampleId.trim()) {
       const existingSample = await prisma.sample.findFirst({
-        where: { OR: [{ id: sampleId }, { accession: sampleId }, { barcode: sampleId }] },
+        where: {
+          OR: [
+            { id: data.sampleId.trim() },
+            { accession: data.sampleId.trim() },
+            { barcode: data.sampleId.trim() },
+          ],
+        },
       });
       if (existingSample) sampleId = existingSample.id;
-    }
-    if (!sampleId) {
-      const firstSample = await prisma.sample.findFirst();
-      if (firstSample) sampleId = firstSample.id;
     }
 
     const created = await prisma.test.create({
@@ -98,13 +100,32 @@ export const update = async (req: Request, res: Response, next: NextFunction): P
   try {
     const { id } = req.params;
     const data = req.body;
+
+    let sampleIdUpdate: string | null | undefined = undefined;
+    if (data.sampleId !== undefined) {
+      if (!data.sampleId || (typeof data.sampleId === "string" && !data.sampleId.trim())) {
+        sampleIdUpdate = null;
+      } else {
+        const existingSample = await prisma.sample.findFirst({
+          where: {
+            OR: [
+              { id: String(data.sampleId).trim() },
+              { accession: String(data.sampleId).trim() },
+              { barcode: String(data.sampleId).trim() },
+            ],
+          },
+        });
+        sampleIdUpdate = existingSample ? existingSample.id : null;
+      }
+    }
+
     const updated = await prisma.test.update({
       where: { id },
       data: {
-        code: data.code,
-        name: data.name,
+        code: data.code ? data.code.trim().toUpperCase() : undefined,
+        name: data.name ? data.name.trim() : undefined,
         department: data.department,
-        sampleId: data.sampleId,
+        sampleId: sampleIdUpdate,
         sampleType: data.sampleType,
         price: data.price !== undefined ? Number(data.price) : undefined,
         referenceRange: data.referenceRange,
