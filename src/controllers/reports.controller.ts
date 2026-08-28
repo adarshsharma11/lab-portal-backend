@@ -5,9 +5,10 @@ export const listReports = async (_req: Request, res: Response, next: NextFuncti
   try {
     const reports = await prisma.report.findMany({
       include: {
-        patient: { select: { id: true, name: true, patientCode: true } },
-        doctor: { select: { id: true, name: true } },
-        sample: { select: { id: true, accession: true } },
+        patient: { select: { id: true, name: true, patientCode: true, age: true, sex: true, phone: true } },
+        doctor: { select: { id: true, name: true, specialty: true } },
+        sample: { select: { id: true, accession: true, barcode: true, sampleType: true, collectedAt: true, receivedAt: true, status: true } },
+        franchise: { select: { id: true, name: true, code: true, city: true } },
       },
       orderBy: { createdAt: "desc" },
     });
@@ -25,6 +26,7 @@ export const getReportById = async (req: Request, res: Response, next: NextFunct
       include: {
         patient: true,
         doctor: true,
+        franchise: true,
         sample: {
           include: {
             tests: {
@@ -38,7 +40,23 @@ export const getReportById = async (req: Request, res: Response, next: NextFunct
       res.status(404).json({ message: "Report not found" });
       return;
     }
-    res.json({ data: report });
+
+    // Fetch individual results if resultIds are specified
+    let results: any[] = [];
+    if (Array.isArray(report.resultIds) && report.resultIds.length > 0) {
+      results = await prisma.result.findMany({
+        where: { id: { in: report.resultIds } },
+        include: { test: true },
+        orderBy: { createdAt: "asc" },
+      });
+    }
+
+    // If no results found via resultIds, gather results from sample's tests
+    if (results.length === 0 && report.sample?.tests) {
+      results = report.sample.tests.flatMap((t) => t.results || []);
+    }
+
+    res.json({ data: { ...report, results } });
   } catch (error) {
     next(error);
   }
@@ -51,6 +69,7 @@ export const createReport = async (req: Request, res: Response, next: NextFuncti
     let sample = null;
     let doctor = null;
 
+    // 1. Resolve Patient
     if (data.patientId && typeof data.patientId === "string" && data.patientId.trim()) {
       const pid = data.patientId.trim();
       patient = await prisma.patient.findFirst({
@@ -65,10 +84,11 @@ export const createReport = async (req: Request, res: Response, next: NextFuncti
     }
     if (!patient) patient = await prisma.patient.findFirst();
     if (!patient) {
-      res.status(400).json({ message: "No patient found. Please create a patient first." });
+      res.status(400).json({ message: "No patient found. Please register a patient first." });
       return;
     }
 
+    // 2. Resolve or Create Sample
     if (data.sampleId && typeof data.sampleId === "string" && data.sampleId.trim()) {
       const sid = data.sampleId.trim();
       sample = await prisma.sample.findFirst({
@@ -81,12 +101,26 @@ export const createReport = async (req: Request, res: Response, next: NextFuncti
         },
       });
     }
-    if (!sample) sample = await prisma.sample.findFirst();
+
     if (!sample) {
-      res.status(400).json({ message: "No sample found. Please create a sample first." });
-      return;
+      const accession = data.accession || `LIS-${Date.now().toString().slice(-6)}`;
+      const barcode = data.barcode || `BC${Date.now().toString().slice(-8)}`;
+      sample = await prisma.sample.create({
+        data: {
+          accession,
+          barcode,
+          patientId: patient.id,
+          franchiseId: patient.franchiseId || data.franchiseId || null,
+          sampleType: data.sampleType || "Blood",
+          collectedAt: data.collectedAt ? new Date(data.collectedAt) : new Date(),
+          receivedAt: data.receivedAt ? new Date(data.receivedAt) : new Date(),
+          status: "Completed",
+          priority: data.priority || "Routine",
+        },
+      });
     }
 
+    // 3. Resolve Doctor
     if (data.doctorId && typeof data.doctorId === "string" && data.doctorId.trim()) {
       const did = data.doctorId.trim();
       doctor = await prisma.doctor.findFirst({
@@ -98,15 +132,79 @@ export const createReport = async (req: Request, res: Response, next: NextFuncti
         },
       });
     }
+    if (!doctor && patient.referringDoctorId) {
+      doctor = await prisma.doctor.findUnique({ where: { id: patient.referringDoctorId } });
+    }
     if (!doctor) doctor = await prisma.doctor.findFirst();
     if (!doctor) {
-      res.status(400).json({ message: "No doctor found. Please create a doctor first." });
-      return;
+      doctor = await prisma.doctor.create({
+        data: {
+          name: data.doctorName || "Dr. Self / Clinical OPD",
+          specialty: "General Medicine",
+          phone: "080-4455-6677",
+        },
+      });
     }
 
+    // 4. Resolve or Create Test
+    const testName = data.testName || (Array.isArray(data.testIds) && data.testIds[0]) || "Complete Blood Count (CBC)";
+    const testCode = data.testCode || (testName.includes("CBC") ? "CBC" : testName.slice(0, 6).toUpperCase().replace(/\s+/g, ""));
+    const department = data.department || "Hematology";
+
+    let testRecord = await prisma.test.findFirst({
+      where: {
+        sampleId: sample.id,
+        name: { equals: testName, mode: "insensitive" },
+      },
+    });
+
+    if (!testRecord) {
+      testRecord = await prisma.test.create({
+        data: {
+          code: testCode,
+          name: testName,
+          department,
+          sampleId: sample.id,
+          sampleType: data.sampleType || sample.sampleType || "Blood",
+          price: Number(data.price) || 500,
+          status: "Active",
+        },
+      });
+    }
+
+    // 5. Create Structured Results if provided
+    const createdResultIds: string[] = [];
+    if (Array.isArray(data.results) && data.results.length > 0) {
+      for (const resItem of data.results) {
+        if (!resItem || !resItem.parameter) continue;
+        const createdRes = await prisma.result.create({
+          data: {
+            testId: testRecord.id,
+            parameter: String(resItem.parameter).trim(),
+            value: String(resItem.value ?? "").trim(),
+            unit: String(resItem.unit ?? "").trim(),
+            referenceRange: String(resItem.referenceRange ?? "").trim(),
+            abnormalFlag: Boolean(resItem.abnormalFlag),
+            criticalFlag: Boolean(resItem.criticalFlag),
+            comments: resItem.comments ? String(resItem.comments).trim() : null,
+          },
+        });
+        createdResultIds.push(createdRes.id);
+      }
+    }
+
+    // 6. Generate Report Number
     const reportNumber = data.reportNumber && data.reportNumber.trim()
       ? data.reportNumber.trim()
-      : `RPT-${Date.now().toString().slice(-6)}`;
+      : `RPT-${Date.now().toString().slice(-8)}`;
+
+    const testIds = Array.isArray(data.testIds) && data.testIds.length > 0
+      ? data.testIds
+      : [testName];
+
+    const resultIds = createdResultIds.length > 0
+      ? createdResultIds
+      : Array.isArray(data.resultIds) ? data.resultIds : [];
 
     const created = await prisma.report.create({
       data: {
@@ -114,15 +212,38 @@ export const createReport = async (req: Request, res: Response, next: NextFuncti
         patientId: patient.id,
         sampleId: sample.id,
         doctorId: doctor.id,
-        testIds: Array.isArray(data.testIds) ? data.testIds : [],
-        resultIds: Array.isArray(data.resultIds) ? data.resultIds : [],
-        department: data.department || "Hematology",
+        franchiseId: patient.franchiseId || data.franchiseId || null,
+        testIds,
+        resultIds,
+        department,
         priority: data.priority || "Routine",
         status: data.status || "Pending Review",
-        pathologist: data.pathologist || null,
-        comments: data.comments || null,
+        pathologist: data.pathologist || "Dr. Pranjali Sejwal, MBBS, MD Pathology",
+        comments: data.comments || data.interpretation || null,
+      },
+      include: {
+        patient: true,
+        doctor: true,
+        sample: true,
+        franchise: true,
       },
     });
+
+    // Mark sample as Completed
+    await prisma.sample.update({
+      where: { id: sample.id },
+      data: { status: "Completed" },
+    }).catch(() => {});
+
+    // Audit Log
+    await prisma.auditActivity.create({
+      data: {
+        type: "Report generated",
+        subject: created.reportNumber,
+        detail: `${patient.name} · ${testName} (${department})`,
+        time: "Just now",
+      },
+    }).catch(() => {});
 
     res.status(201).json({ data: created });
   } catch (error) {
@@ -145,6 +266,11 @@ export const updateReport = async (req: Request, res: Response, next: NextFuncti
         priority: data.priority,
         testIds: data.testIds,
         resultIds: data.resultIds,
+      },
+      include: {
+        patient: true,
+        doctor: true,
+        sample: true,
       },
     });
 
