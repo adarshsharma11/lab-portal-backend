@@ -10,6 +10,7 @@ export interface AuthenticatedRequest extends Request {
     role: string;
     initials: string | null;
     permissions: string[];
+    franchiseId: string | null;
   };
 }
 
@@ -42,6 +43,7 @@ export const protectAuth = async (
         initials: true,
         permissions: true,
         active: true,
+        franchiseId: true,
       },
     });
 
@@ -78,6 +80,7 @@ export const optionalAuth = async (
             initials: true,
             permissions: true,
             active: true,
+            franchiseId: true,
           },
         });
         if (user && user.active) {
@@ -108,5 +111,30 @@ export const requireRoles = (...allowedRoles: string[]) => {
     }
 
     res.status(403).json({ message: "Permission denied for this role." });
+  };
+};
+
+/**
+ * Returns tenant scope for querying and mutating resources.
+ * - If user is a Franchise, `isFranchise` is true and `franchiseId` is strictly locked to `req.user.franchiseId`.
+ * - If user is an Admin, `isAdmin` is true and `franchiseId` can be optionally filtered via `req.query.franchiseId`.
+ */
+export const getTenantScope = (req: AuthenticatedRequest) => {
+  const isFranchise = req.user?.role === "Franchise";
+  const isAdmin = req.user?.role === "Admin" || req.user?.role === "Administrator";
+  const userFranchiseId = req.user?.franchiseId ?? null;
+
+  let queryFranchiseId: string | null = null;
+  if (typeof req.query?.franchiseId === "string" && req.query.franchiseId.trim() && req.query.franchiseId !== "all") {
+    queryFranchiseId = req.query.franchiseId.trim();
+  }
+
+  const effectiveFranchiseId = isFranchise ? userFranchiseId : queryFranchiseId;
+
+  return {
+    isFranchise,
+    isAdmin,
+    userFranchiseId,
+    effectiveFranchiseId,
   };
 };

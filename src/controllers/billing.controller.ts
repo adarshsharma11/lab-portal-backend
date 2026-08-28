@@ -1,12 +1,44 @@
 import { Request, Response, NextFunction } from "express";
 import { prisma } from "../lib/prisma";
+import { AuthenticatedRequest, getTenantScope } from "../middleware/auth.middleware";
 
-export const list = async (_req: Request, res: Response, next: NextFunction): Promise<void> => {
+export const list = async (req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> => {
   try {
+    const { isFranchise, userFranchiseId, effectiveFranchiseId } = getTenantScope(req);
+    const search = typeof req.query.search === "string" ? req.query.search.trim().toLowerCase() : "";
+
+    if (isFranchise && !userFranchiseId) {
+      res.json({ data: [] });
+      return;
+    }
+
+    let whereClause: any = {};
+    if (isFranchise) {
+      whereClause = { franchiseId: userFranchiseId };
+    } else if (effectiveFranchiseId) {
+      whereClause = { franchiseId: effectiveFranchiseId };
+    }
+
+    if (search) {
+      whereClause = {
+        AND: [
+          whereClause,
+          {
+            OR: [
+              { billNumber: { contains: search, mode: "insensitive" } },
+              { patient: { name: { contains: search, mode: "insensitive" } } },
+            ],
+          },
+        ],
+      };
+    }
+
     const invoices = await prisma.invoice.findMany({
+      where: whereClause,
       include: {
         patient: { select: { id: true, name: true, patientCode: true } },
         doctor: { select: { id: true, name: true } },
+        franchise: { select: { id: true, name: true, code: true } },
       },
       orderBy: { createdAt: "desc" },
     });
@@ -16,26 +48,39 @@ export const list = async (_req: Request, res: Response, next: NextFunction): Pr
   }
 };
 
-export const getById = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+export const getById = async (req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> => {
   try {
     const { id } = req.params;
+    const { isFranchise, userFranchiseId } = getTenantScope(req);
+
     const invoice = await prisma.invoice.findUnique({
       where: { id },
-      include: { patient: true, doctor: true },
+      include: { 
+        patient: true, 
+        doctor: true,
+        franchise: true,
+      },
     });
     if (!invoice) {
       res.status(404).json({ message: "Invoice not found" });
       return;
     }
+
+    if (isFranchise && invoice.franchiseId !== userFranchiseId) {
+      res.status(403).json({ message: "Access denied. Invoice belongs to another franchise." });
+      return;
+    }
+
     res.json({ data: invoice });
   } catch (error) {
     next(error);
   }
 };
 
-export const create = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+export const create = async (req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> => {
   try {
     const data = req.body;
+    const { isFranchise, userFranchiseId } = getTenantScope(req);
     let patient = null;
 
     if (data.patientId && typeof data.patientId === "string" && data.patientId.trim()) {
@@ -47,12 +92,15 @@ export const create = async (req: Request, res: Response, next: NextFunction): P
             { patientCode: { equals: pid, mode: "insensitive" } },
             { name: { contains: pid, mode: "insensitive" } },
           ],
+          ...(isFranchise && userFranchiseId ? { franchiseId: userFranchiseId } : {}),
         },
       });
     }
 
     if (!patient) {
-      patient = await prisma.patient.findFirst();
+      patient = await prisma.patient.findFirst({
+        where: isFranchise && userFranchiseId ? { franchiseId: userFranchiseId } : undefined,
+      });
     }
 
     if (!patient) {
@@ -81,6 +129,10 @@ export const create = async (req: Request, res: Response, next: NextFunction): P
       res.status(400).json({ message: "No registered doctor found. Please add a doctor first." });
       return;
     }
+
+    const franchiseId = isFranchise
+      ? userFranchiseId
+      : (data.franchiseId || patient.franchiseId || null);
 
     const billNumber = data.billNumber && data.billNumber.trim()
       ? data.billNumber.trim()
@@ -111,6 +163,7 @@ export const create = async (req: Request, res: Response, next: NextFunction): P
         billNumber,
         patientId: patient.id,
         doctorId: doctor.id,
+        franchiseId,
         billDate: data.billDate || new Date().toISOString().slice(0, 10),
         items,
         discount,
@@ -120,6 +173,11 @@ export const create = async (req: Request, res: Response, next: NextFunction): P
         paymentStatus: data.paymentStatus || "Pending",
         addedBy: data.addedBy || "Dr. Ananya Rao",
       },
+      include: {
+        patient: true,
+        doctor: true,
+        franchise: true,
+      },
     });
 
     res.status(201).json({ data: created });
@@ -128,10 +186,22 @@ export const create = async (req: Request, res: Response, next: NextFunction): P
   }
 };
 
-export const update = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+export const update = async (req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> => {
   try {
     const { id } = req.params;
     const data = req.body;
+    const { isFranchise, userFranchiseId } = getTenantScope(req);
+
+    const existing = await prisma.invoice.findUnique({ where: { id } });
+    if (!existing) {
+      res.status(404).json({ message: "Invoice not found" });
+      return;
+    }
+
+    if (isFranchise && existing.franchiseId !== userFranchiseId) {
+      res.status(403).json({ message: "Access denied. Cannot update invoice belonging to another franchise." });
+      return;
+    }
 
     let patientIdUpdate: string | undefined = undefined;
     if (data.patientId && typeof data.patientId === "string" && data.patientId.trim()) {
@@ -168,6 +238,7 @@ export const update = async (req: Request, res: Response, next: NextFunction): P
         billNumber: data.billNumber,
         patientId: patientIdUpdate,
         doctorId: doctorIdUpdate,
+        franchiseId: isFranchise ? undefined : (data.franchiseId !== undefined ? data.franchiseId : undefined),
         billDate: data.billDate,
         items: data.items,
         discount: data.discount !== undefined ? Number(data.discount) : undefined,
@@ -177,6 +248,11 @@ export const update = async (req: Request, res: Response, next: NextFunction): P
         paymentStatus: data.paymentStatus,
         addedBy: data.addedBy,
       },
+      include: {
+        patient: true,
+        doctor: true,
+        franchise: true,
+      },
     });
     res.json({ data: updated });
   } catch (error) {
@@ -184,9 +260,22 @@ export const update = async (req: Request, res: Response, next: NextFunction): P
   }
 };
 
-export const remove = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+export const remove = async (req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> => {
   try {
     const { id } = req.params;
+    const { isFranchise, userFranchiseId } = getTenantScope(req);
+
+    const existing = await prisma.invoice.findUnique({ where: { id } });
+    if (!existing) {
+      res.status(404).json({ message: "Invoice not found" });
+      return;
+    }
+
+    if (isFranchise && existing.franchiseId !== userFranchiseId) {
+      res.status(403).json({ message: "Access denied. Cannot delete invoice belonging to another franchise." });
+      return;
+    }
+
     await prisma.invoice.delete({ where: { id } });
     res.json({ message: "Invoice deleted successfully" });
   } catch (error) {

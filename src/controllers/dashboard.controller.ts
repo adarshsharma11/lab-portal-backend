@@ -1,14 +1,20 @@
 import { Request, Response, NextFunction } from "express";
 import { prisma } from "../lib/prisma";
+import { AuthenticatedRequest, getTenantScope } from "../middleware/auth.middleware";
 
-export const getStats = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+export const getStats = async (req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> => {
   try {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
-    const franchiseId = typeof req.query.franchiseId === "string" && req.query.franchiseId !== "all"
-      ? req.query.franchiseId.trim()
-      : undefined;
+    const { isFranchise, userFranchiseId, effectiveFranchiseId } = getTenantScope(req);
+    const franchiseId = isFranchise ? userFranchiseId : effectiveFranchiseId;
+
+    // Fetch franchise details if scoped
+    let franchise = null;
+    if (franchiseId) {
+      franchise = await prisma.franchise.findUnique({ where: { id: franchiseId } });
+    }
 
     const [
       totalPatients,
@@ -19,6 +25,8 @@ export const getStats = async (req: Request, res: Response, next: NextFunction):
       reportsToday,
       criticalResults,
       invoices,
+      totalDoctors,
+      totalStaff,
     ] = await Promise.all([
       prisma.patient.count({ where: franchiseId ? { franchiseId } : undefined }),
       prisma.sample.count({ where: { collectedAt: { gte: today }, ...(franchiseId ? { franchiseId } : {}) } }),
@@ -26,22 +34,50 @@ export const getStats = async (req: Request, res: Response, next: NextFunction):
       prisma.test.count({ where: { sample: { status: "Completed", ...(franchiseId ? { franchiseId } : {}) } } }),
       prisma.report.count({ where: { status: "Pending Review", ...(franchiseId ? { franchiseId } : {}) } }),
       prisma.report.count({ where: { createdAt: { gte: today }, ...(franchiseId ? { franchiseId } : {}) } }),
-      prisma.result.count({ where: { criticalFlag: true } }),
-      prisma.invoice.findMany({ where: franchiseId ? { franchiseId } : undefined, select: { total: true } }),
+      prisma.result.count({ 
+        where: { 
+          criticalFlag: true,
+          ...(franchiseId ? { test: { OR: [{ franchiseId }, { sample: { franchiseId } }] } } : {})
+        } 
+      }),
+      prisma.invoice.findMany({ 
+        where: franchiseId ? { franchiseId } : undefined, 
+        select: { total: true, paymentStatus: true, createdAt: true } 
+      }),
+      prisma.doctor.count({ where: franchiseId ? { franchiseId } : undefined }),
+      prisma.user.count({ where: franchiseId ? { franchiseId } : undefined }),
     ]);
 
-    const revenue = (invoices as { total: number }[]).reduce((acc: number, inv: { total: number }) => acc + inv.total, 0);
+    const totalRevenue = (invoices as { total: number; paymentStatus: string }[])
+      .reduce((acc, inv) => acc + (inv.total || 0), 0);
+
+    const paidRevenue = (invoices as { total: number; paymentStatus: string }[])
+      .filter(inv => inv.paymentStatus === "Paid")
+      .reduce((acc, inv) => acc + (inv.total || 0), 0);
+
+    const pendingRevenue = totalRevenue - paidRevenue;
+
+    const revenueShareRate = franchise?.revenueShare || 20; // default 20%
+    const franchiseShareAmount = Math.round((totalRevenue * revenueShareRate) / 100);
 
     res.json({
       data: {
-        totalPatients: totalPatients || (franchiseId ? 0 : 2847),
-        samplesToday: samplesToday || (franchiseId ? 0 : 148),
-        pendingTests: pendingTests || (franchiseId ? 0 : 37),
-        completedTests: completedTests || (franchiseId ? 0 : 289),
-        pendingReports: pendingReports || (franchiseId ? 0 : 18),
-        reportsToday: reportsToday || (franchiseId ? 0 : 96),
-        criticalResults: criticalResults || (franchiseId ? 0 : 3),
-        revenue: revenue || (franchiseId ? 0 : 184500),
+        totalPatients,
+        samplesToday,
+        pendingTests,
+        completedTests,
+        pendingReports,
+        reportsToday,
+        criticalResults,
+        totalDoctors,
+        totalStaff,
+        revenue: totalRevenue,
+        paidRevenue,
+        pendingRevenue,
+        revenueShareRate,
+        franchiseShareAmount,
+        franchiseName: franchise?.name || null,
+        franchiseCode: franchise?.code || null,
       },
     });
   } catch (error) {
@@ -49,7 +85,7 @@ export const getStats = async (req: Request, res: Response, next: NextFunction):
   }
 };
 
-export const getTestVolume = async (_req: Request, res: Response, next: NextFunction): Promise<void> => {
+export const getTestVolume = async (req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> => {
   try {
     const defaultData = [
       { label: "Mon", value: 182 },
@@ -66,9 +102,16 @@ export const getTestVolume = async (_req: Request, res: Response, next: NextFunc
   }
 };
 
-export const getDepartmentDistribution = async (_req: Request, res: Response, next: NextFunction): Promise<void> => {
+export const getDepartmentDistribution = async (req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> => {
   try {
-    const tests = await prisma.test.findMany({ select: { department: true } });
+    const { isFranchise, userFranchiseId, effectiveFranchiseId } = getTenantScope(req);
+    const franchiseId = isFranchise ? userFranchiseId : effectiveFranchiseId;
+
+    const tests = await prisma.test.findMany({ 
+      where: franchiseId ? { OR: [{ franchiseId }, { sample: { franchiseId } }] } : undefined,
+      select: { department: true } 
+    });
+
     if (tests.length === 0) {
       res.json({
         data: [
@@ -88,17 +131,16 @@ export const getDepartmentDistribution = async (_req: Request, res: Response, ne
     });
 
     const result = Object.entries(counts).map(([label, value]: [string, number]) => ({ label, value }));
-    res.json({ data: result.length ? result : [{ label: "Hematology", value: 38 }, { label: "Biochemistry", value: 31 }] });
+    res.json({ data: result });
   } catch (error) {
     next(error);
   }
 };
 
-export const getSampleStatistics = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+export const getSampleStatistics = async (req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> => {
   try {
-    const franchiseId = typeof req.query.franchiseId === "string" && req.query.franchiseId !== "all"
-      ? req.query.franchiseId.trim()
-      : undefined;
+    const { isFranchise, userFranchiseId, effectiveFranchiseId } = getTenantScope(req);
+    const franchiseId = isFranchise ? userFranchiseId : effectiveFranchiseId;
 
     const samples = await prisma.sample.findMany({
       where: franchiseId ? { franchiseId } : undefined,
@@ -119,17 +161,45 @@ export const getSampleStatistics = async (req: Request, res: Response, next: Nex
   }
 };
 
-export const getRevenue = async (_req: Request, res: Response, next: NextFunction): Promise<void> => {
+export const getRevenue = async (req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> => {
   try {
-    const defaultData = [
-      { label: "Mar", value: 142 },
-      { label: "Apr", value: 158 },
-      { label: "May", value: 151 },
-      { label: "Jun", value: 172 },
-      { label: "Jul", value: 165 },
-      { label: "Aug", value: 185 },
-    ];
-    res.json({ data: defaultData });
+    const { isFranchise, userFranchiseId, effectiveFranchiseId } = getTenantScope(req);
+    const franchiseId = isFranchise ? userFranchiseId : effectiveFranchiseId;
+
+    const invoices = await prisma.invoice.findMany({
+      where: franchiseId ? { franchiseId } : undefined,
+      select: { total: true, createdAt: true },
+      orderBy: { createdAt: "asc" },
+    });
+
+    if (invoices.length === 0) {
+      const defaultData = [
+        { label: "Mar", value: 142 },
+        { label: "Apr", value: 158 },
+        { label: "May", value: 151 },
+        { label: "Jun", value: 172 },
+        { label: "Jul", value: 165 },
+        { label: "Aug", value: 185 },
+      ];
+      res.json({ data: defaultData });
+      return;
+    }
+
+    const monthMap: Record<string, number> = {};
+    const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    
+    invoices.forEach(inv => {
+      const d = new Date(inv.createdAt);
+      const m = months[d.getMonth()];
+      monthMap[m] = (monthMap[m] || 0) + (inv.total || 0);
+    });
+
+    const data = Object.entries(monthMap).map(([label, value]) => ({
+      label,
+      value: Math.round(value / 1000) || value, // in thousands or raw
+    }));
+
+    res.json({ data: data.length > 0 ? data : [{ label: "Aug", value: 185 }] });
   } catch (error) {
     next(error);
   }
@@ -149,7 +219,7 @@ export const getTurnaround = async (_req: Request, res: Response, next: NextFunc
   }
 };
 
-export const getRecentActivity = async (_req: Request, res: Response, next: NextFunction): Promise<void> => {
+export const getRecentActivity = async (req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> => {
   try {
     const activities = await prisma.auditActivity.findMany({
       orderBy: { createdAt: "desc" },
@@ -161,11 +231,10 @@ export const getRecentActivity = async (_req: Request, res: Response, next: Next
   }
 };
 
-export const getPendingWork = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+export const getPendingWork = async (req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> => {
   try {
-    const franchiseId = typeof req.query.franchiseId === "string" && req.query.franchiseId !== "all"
-      ? req.query.franchiseId.trim()
-      : undefined;
+    const { isFranchise, userFranchiseId, effectiveFranchiseId } = getTenantScope(req);
+    const franchiseId = isFranchise ? userFranchiseId : effectiveFranchiseId;
 
     const pendingSamples = await prisma.sample.findMany({
       where: {
@@ -198,10 +267,16 @@ export const getPendingWork = async (req: Request, res: Response, next: NextFunc
   }
 };
 
-export const getCriticalResults = async (_req: Request, res: Response, next: NextFunction): Promise<void> => {
+export const getCriticalResults = async (req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> => {
   try {
+    const { isFranchise, userFranchiseId, effectiveFranchiseId } = getTenantScope(req);
+    const franchiseId = isFranchise ? userFranchiseId : effectiveFranchiseId;
+
     const criticalResults = await prisma.result.findMany({
-      where: { criticalFlag: true },
+      where: { 
+        criticalFlag: true,
+        ...(franchiseId ? { test: { OR: [{ franchiseId }, { sample: { franchiseId } }] } } : {})
+      },
       include: {
         test: {
           include: {

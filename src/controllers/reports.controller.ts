@@ -1,9 +1,41 @@
 import { Request, Response, NextFunction } from "express";
 import { prisma } from "../lib/prisma";
+import { AuthenticatedRequest, getTenantScope } from "../middleware/auth.middleware";
 
-export const listReports = async (_req: Request, res: Response, next: NextFunction): Promise<void> => {
+export const listReports = async (req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> => {
   try {
+    const { isFranchise, userFranchiseId, effectiveFranchiseId } = getTenantScope(req);
+    const search = typeof req.query.search === "string" ? req.query.search.trim().toLowerCase() : "";
+
+    if (isFranchise && !userFranchiseId) {
+      res.json({ data: [] });
+      return;
+    }
+
+    let whereClause: any = {};
+    if (isFranchise) {
+      whereClause = { franchiseId: userFranchiseId };
+    } else if (effectiveFranchiseId) {
+      whereClause = { franchiseId: effectiveFranchiseId };
+    }
+
+    if (search) {
+      whereClause = {
+        AND: [
+          whereClause,
+          {
+            OR: [
+              { reportNumber: { contains: search, mode: "insensitive" } },
+              { patient: { name: { contains: search, mode: "insensitive" } } },
+              { sample: { barcode: { contains: search, mode: "insensitive" } } },
+            ],
+          },
+        ],
+      };
+    }
+
     const reports = await prisma.report.findMany({
+      where: whereClause,
       include: {
         patient: { select: { id: true, name: true, patientCode: true, age: true, sex: true, phone: true } },
         doctor: { select: { id: true, name: true, specialty: true } },
@@ -18,9 +50,11 @@ export const listReports = async (_req: Request, res: Response, next: NextFuncti
   }
 };
 
-export const getReportById = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+export const getReportById = async (req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> => {
   try {
     const { id } = req.params;
+    const { isFranchise, userFranchiseId } = getTenantScope(req);
+
     const report = await prisma.report.findUnique({
       where: { id },
       include: {
@@ -38,6 +72,11 @@ export const getReportById = async (req: Request, res: Response, next: NextFunct
     });
     if (!report) {
       res.status(404).json({ message: "Report not found" });
+      return;
+    }
+
+    if (isFranchise && report.franchiseId !== userFranchiseId) {
+      res.status(403).json({ message: "Access denied. Report belongs to another franchise." });
       return;
     }
 
@@ -62,9 +101,10 @@ export const getReportById = async (req: Request, res: Response, next: NextFunct
   }
 };
 
-export const createReport = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+export const createReport = async (req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> => {
   try {
     const data = req.body;
+    const { isFranchise, userFranchiseId } = getTenantScope(req);
     let patient = null;
     let sample = null;
     let doctor = null;
@@ -79,14 +119,23 @@ export const createReport = async (req: Request, res: Response, next: NextFuncti
             { patientCode: { equals: pid, mode: "insensitive" } },
             { name: { contains: pid, mode: "insensitive" } },
           ],
+          ...(isFranchise && userFranchiseId ? { franchiseId: userFranchiseId } : {}),
         },
       });
     }
-    if (!patient) patient = await prisma.patient.findFirst();
+    if (!patient) {
+      patient = await prisma.patient.findFirst({
+        where: isFranchise && userFranchiseId ? { franchiseId: userFranchiseId } : undefined,
+      });
+    }
     if (!patient) {
       res.status(400).json({ message: "No patient found. Please register a patient first." });
       return;
     }
+
+    const franchiseId = isFranchise
+      ? userFranchiseId
+      : (data.franchiseId || patient.franchiseId || null);
 
     // 2. Resolve or Create Sample
     if (data.sampleId && typeof data.sampleId === "string" && data.sampleId.trim()) {
@@ -110,7 +159,7 @@ export const createReport = async (req: Request, res: Response, next: NextFuncti
           accession,
           barcode,
           patientId: patient.id,
-          franchiseId: patient.franchiseId || data.franchiseId || null,
+          franchiseId,
           sampleType: data.sampleType || "Blood",
           collectedAt: data.collectedAt ? new Date(data.collectedAt) : new Date(),
           receivedAt: data.receivedAt ? new Date(data.receivedAt) : new Date(),
@@ -142,6 +191,7 @@ export const createReport = async (req: Request, res: Response, next: NextFuncti
           name: data.doctorName || "Dr. Self / Clinical OPD",
           specialty: "General Medicine",
           phone: "080-4455-6677",
+          franchiseId,
         },
       });
     }
@@ -165,6 +215,7 @@ export const createReport = async (req: Request, res: Response, next: NextFuncti
           name: testName,
           department,
           sampleId: sample.id,
+          franchiseId,
           sampleType: data.sampleType || sample.sampleType || "Blood",
           price: Number(data.price) || 500,
           status: "Active",
@@ -212,7 +263,7 @@ export const createReport = async (req: Request, res: Response, next: NextFuncti
         patientId: patient.id,
         sampleId: sample.id,
         doctorId: doctor.id,
-        franchiseId: patient.franchiseId || data.franchiseId || null,
+        franchiseId,
         testIds,
         resultIds,
         department,
@@ -251,10 +302,22 @@ export const createReport = async (req: Request, res: Response, next: NextFuncti
   }
 };
 
-export const updateReport = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+export const updateReport = async (req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> => {
   try {
     const { id } = req.params;
     const data = req.body;
+    const { isFranchise, userFranchiseId } = getTenantScope(req);
+
+    const existing = await prisma.report.findUnique({ where: { id } });
+    if (!existing) {
+      res.status(404).json({ message: "Report not found" });
+      return;
+    }
+
+    if (isFranchise && existing.franchiseId !== userFranchiseId) {
+      res.status(403).json({ message: "Access denied. Cannot update report belonging to another franchise." });
+      return;
+    }
 
     const updated = await prisma.report.update({
       where: { id },
@@ -271,6 +334,7 @@ export const updateReport = async (req: Request, res: Response, next: NextFuncti
         patient: true,
         doctor: true,
         sample: true,
+        franchise: true,
       },
     });
 
@@ -291,9 +355,22 @@ export const updateReport = async (req: Request, res: Response, next: NextFuncti
   }
 };
 
-export const deleteReport = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+export const deleteReport = async (req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> => {
   try {
     const { id } = req.params;
+    const { isFranchise, userFranchiseId } = getTenantScope(req);
+
+    const existing = await prisma.report.findUnique({ where: { id } });
+    if (!existing) {
+      res.status(404).json({ message: "Report not found" });
+      return;
+    }
+
+    if (isFranchise && existing.franchiseId !== userFranchiseId) {
+      res.status(403).json({ message: "Access denied. Cannot delete report belonging to another franchise." });
+      return;
+    }
+
     await prisma.report.delete({ where: { id } });
     res.json({ message: "Report deleted successfully" });
   } catch (error) {

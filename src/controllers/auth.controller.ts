@@ -74,7 +74,7 @@ export const register = async (req: Request, res: Response, next: NextFunction):
     const { passwordHash: _, ...safeUser } = user;
 
     res.status(201).json({
-      data: safeUser,
+      data: { ...safeUser, token },
       token,
       message: "Account created successfully",
     });
@@ -121,7 +121,7 @@ export const login = async (req: Request, res: Response, next: NextFunction): Pr
     const { passwordHash: _, ...safeUser } = user;
 
     res.json({
-      data: safeUser,
+      data: { ...safeUser, token },
       token,
       message: "Login successful",
     });

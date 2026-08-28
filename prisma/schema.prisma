@@ -30,7 +30,9 @@ model Franchise {
 
   users          User[]
   patients       Patient[]
+  doctors        Doctor[]
   samples        Sample[]
+  tests          Test[]
   reports        Report[]
   appointments   Appointment[]
   invoices       Invoice[]
@@ -104,9 +106,11 @@ model Doctor {
   experience    String?
   description   String?
   dateOfJoining String?
+  franchiseId   String?
   createdAt     DateTime       @default(now())
   updatedAt     DateTime       @updatedAt
 
+  franchise     Franchise?     @relation(fields: [franchiseId], references: [id], onDelete: SetNull)
   patients      Patient[]
   reports       Report[]
   appointments  Appointment[]
@@ -162,6 +166,7 @@ model Test {
   name            String
   department      String
   sampleId        String?
+  franchiseId     String?
   sampleType      String?
   price           Float    @default(0)
   referenceRange  String?
@@ -171,7 +176,8 @@ model Test {
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
-  sample          Sample?  @relation(fields: [sampleId], references: [id], onDelete: SetNull)
+  sample          Sample?    @relation(fields: [sampleId], references: [id], onDelete: SetNull)
+  franchise       Franchise? @relation(fields: [franchiseId], references: [id], onDelete: SetNull)
   results         Result[]
 
   @@map("tests")

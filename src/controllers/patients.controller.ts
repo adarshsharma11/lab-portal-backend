@@ -1,22 +1,44 @@
 import { Request, Response, NextFunction } from "express";
 import { prisma } from "../lib/prisma";
+import { AuthenticatedRequest, getTenantScope } from "../middleware/auth.middleware";
 
-export const list = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+export const list = async (req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> => {
   try {
+    const { isFranchise, userFranchiseId, effectiveFranchiseId } = getTenantScope(req);
     const search = typeof req.query.search === "string" ? req.query.search.trim().toLowerCase() : "";
-    const patients = await prisma.patient.findMany({
-      where: search
-        ? {
+
+    let whereClause: any = {};
+    if (isFranchise) {
+      if (!userFranchiseId) {
+        res.json({ data: [] });
+        return;
+      }
+      whereClause = { franchiseId: userFranchiseId };
+    } else if (effectiveFranchiseId) {
+      whereClause = { franchiseId: effectiveFranchiseId };
+    }
+
+    if (search) {
+      whereClause = {
+        AND: [
+          whereClause,
+          {
             OR: [
               { name: { contains: search, mode: "insensitive" } },
               { patientCode: { contains: search, mode: "insensitive" } },
               { phone: { contains: search, mode: "insensitive" } },
               { email: { contains: search, mode: "insensitive" } },
             ],
-          }
-        : undefined,
+          },
+        ],
+      };
+    }
+
+    const patients = await prisma.patient.findMany({
+      where: whereClause,
       include: {
-        referringDoctor: { select: { id: true, name: true } },
+        referringDoctor: { select: { id: true, name: true, specialty: true } },
+        franchise: { select: { id: true, name: true, code: true, city: true } },
       },
       orderBy: { createdAt: "desc" },
     });
@@ -26,32 +48,49 @@ export const list = async (req: Request, res: Response, next: NextFunction): Pro
   }
 };
 
-export const getById = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+export const getById = async (req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> => {
   try {
     const { id } = req.params;
+    const { isFranchise, userFranchiseId } = getTenantScope(req);
+
     const patient = await prisma.patient.findUnique({
       where: { id },
       include: {
         referringDoctor: true,
-        samples: true,
+        franchise: { select: { id: true, name: true, code: true, city: true } },
+        samples: {
+          include: {
+            tests: true,
+          },
+        },
         reports: true,
         appointments: true,
         invoices: true,
       },
     });
+
     if (!patient) {
       res.status(404).json({ message: "Patient not found" });
       return;
     }
+
+    // Strict tenant boundary check
+    if (isFranchise && patient.franchiseId !== userFranchiseId) {
+      res.status(403).json({ message: "Access denied. This patient belongs to another franchise." });
+      return;
+    }
+
     res.json({ data: patient });
   } catch (error) {
     next(error);
   }
 };
 
-export const create = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+export const create = async (req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> => {
   try {
     const data = req.body;
+    const { isFranchise, userFranchiseId } = getTenantScope(req);
+
     if (!data.name || typeof data.name !== "string" || !data.name.trim()) {
       res.status(400).json({ message: "Patient name is required" });
       return;
@@ -60,10 +99,23 @@ export const create = async (req: Request, res: Response, next: NextFunction): P
       res.status(400).json({ message: "Patient phone number is required" });
       return;
     }
+    if (!data.pincode || typeof data.pincode !== "string" || !data.pincode.trim()) {
+      res.status(400).json({ message: "Pincode is required" });
+      return;
+    }
+    if (!data.bloodGroup || typeof data.bloodGroup !== "string" || !data.bloodGroup.trim()) {
+      res.status(400).json({ message: "Blood group is required" });
+      return;
+    }
 
     const patientCode = data.patientCode && data.patientCode !== "PT-" && data.patientCode.trim()
       ? data.patientCode.trim()
       : `PT-${Math.floor(10000 + Math.random() * 90000)}`;
+
+    // Franchise Assignment
+    const franchiseId = isFranchise
+      ? userFranchiseId
+      : (data.franchiseId && typeof data.franchiseId === "string" && data.franchiseId.trim() ? data.franchiseId.trim() : null);
 
     let referringDoctorId: string | null = null;
     if (data.referringDoctorId && typeof data.referringDoctorId === "string" && data.referringDoctorId.trim()) {
@@ -90,17 +142,22 @@ export const create = async (req: Request, res: Response, next: NextFunction): P
         email: data.email ? data.email.trim() : null,
         city: data.city || null,
         state: data.state || null,
-        pincode: data.pincode || null,
+        pincode: data.pincode ? data.pincode.trim() : null,
         address: data.address || null,
         emergencyContact: data.emergencyContact || null,
-        bloodGroup: data.bloodGroup || null,
+        bloodGroup: data.bloodGroup ? data.bloodGroup.trim() : null,
         referringDoctorId,
+        franchiseId,
         status: data.status || "Active",
         dateOfBirth: data.dateOfBirth || null,
       },
+      include: {
+        referringDoctor: true,
+        franchise: true,
+      },
     });
 
-    // Add audit log
+    // Audit log
     await prisma.auditActivity.create({
       data: {
         type: "Patient registered",
@@ -116,10 +173,23 @@ export const create = async (req: Request, res: Response, next: NextFunction): P
   }
 };
 
-export const update = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+export const update = async (req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> => {
   try {
     const { id } = req.params;
     const data = req.body;
+    const { isFranchise, userFranchiseId } = getTenantScope(req);
+
+    const existing = await prisma.patient.findUnique({ where: { id } });
+    if (!existing) {
+      res.status(404).json({ message: "Patient not found" });
+      return;
+    }
+
+    // Strict boundary check
+    if (isFranchise && existing.franchiseId !== userFranchiseId) {
+      res.status(403).json({ message: "Access denied. Cannot update patient belonging to another franchise." });
+      return;
+    }
 
     let referringDoctorIdUpdate: string | null | undefined = undefined;
     if (data.referringDoctorId !== undefined) {
@@ -153,8 +223,13 @@ export const update = async (req: Request, res: Response, next: NextFunction): P
         emergencyContact: data.emergencyContact !== undefined ? data.emergencyContact : undefined,
         bloodGroup: data.bloodGroup !== undefined ? data.bloodGroup : undefined,
         referringDoctorId: referringDoctorIdUpdate,
+        franchiseId: isFranchise ? undefined : (data.franchiseId !== undefined ? data.franchiseId : undefined),
         status: data.status !== undefined ? data.status : undefined,
         dateOfBirth: data.dateOfBirth !== undefined ? data.dateOfBirth : undefined,
+      },
+      include: {
+        referringDoctor: true,
+        franchise: true,
       },
     });
 
@@ -164,9 +239,22 @@ export const update = async (req: Request, res: Response, next: NextFunction): P
   }
 };
 
-export const remove = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+export const remove = async (req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> => {
   try {
     const { id } = req.params;
+    const { isFranchise, userFranchiseId } = getTenantScope(req);
+
+    const existing = await prisma.patient.findUnique({ where: { id } });
+    if (!existing) {
+      res.status(404).json({ message: "Patient not found" });
+      return;
+    }
+
+    if (isFranchise && existing.franchiseId !== userFranchiseId) {
+      res.status(403).json({ message: "Access denied. Cannot delete patient belonging to another franchise." });
+      return;
+    }
+
     await prisma.patient.delete({ where: { id } });
     res.json({ message: "Patient deleted successfully" });
   } catch (error) {

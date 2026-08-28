@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from "express";
 import { prisma } from "../lib/prisma";
 import { hashPassword } from "../utils/auth";
+import { AuthenticatedRequest, getTenantScope } from "../middleware/auth.middleware";
 
 const getDefaultPermissionsForRole = (role: string): string[] => {
   switch (role) {
@@ -22,23 +23,33 @@ const getDefaultPermissionsForRole = (role: string): string[] => {
   }
 };
 
-export const list = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+export const list = async (req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> => {
   try {
+    const { isFranchise, userFranchiseId, effectiveFranchiseId } = getTenantScope(req);
     const roleFilter = typeof req.query.role === "string" ? req.query.role.trim() : undefined;
     const search = typeof req.query.search === "string" ? req.query.search.trim().toLowerCase() : "";
 
-    const where: any = {};
-    if (roleFilter) {
-      where.role = { equals: roleFilter, mode: "insensitive" };
+    if (isFranchise && !userFranchiseId) {
+      res.json({ data: [] });
+      return;
     }
-    if (search) {
-      where.OR = [
-        { name: { contains: search, mode: "insensitive" } },
-        { email: { contains: search, mode: "insensitive" } },
-        { mobile: { contains: search, mode: "insensitive" } },
-        { role: { contains: search, mode: "insensitive" } },
-      ];
-    }
+
+    const where: any = {
+      AND: [
+        roleFilter ? { role: { equals: roleFilter, mode: "insensitive" } } : {},
+        search
+          ? {
+              OR: [
+                { name: { contains: search, mode: "insensitive" } },
+                { email: { contains: search, mode: "insensitive" } },
+                { mobile: { contains: search, mode: "insensitive" } },
+                { role: { contains: search, mode: "insensitive" } },
+              ],
+            }
+          : {},
+        isFranchise ? { franchiseId: userFranchiseId } : (effectiveFranchiseId ? { franchiseId: effectiveFranchiseId } : {}),
+      ],
+    };
 
     const users = await prisma.user.findMany({
       where,
@@ -54,6 +65,8 @@ export const list = async (req: Request, res: Response, next: NextFunction): Pro
         dateOfBirth: true,
         gender: true,
         location: true,
+        franchiseId: true,
+        franchise: { select: { id: true, name: true, code: true, city: true } },
         createdAt: true,
       },
       orderBy: { createdAt: "desc" },
@@ -64,9 +77,11 @@ export const list = async (req: Request, res: Response, next: NextFunction): Pro
   }
 };
 
-export const getById = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+export const getById = async (req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> => {
   try {
     const { id } = req.params;
+    const { isFranchise, userFranchiseId } = getTenantScope(req);
+
     const user = await prisma.user.findUnique({
       where: { id },
       select: {
@@ -81,6 +96,8 @@ export const getById = async (req: Request, res: Response, next: NextFunction): 
         dateOfBirth: true,
         gender: true,
         location: true,
+        franchiseId: true,
+        franchise: { select: { id: true, name: true, code: true, city: true } },
         createdAt: true,
       },
     });
@@ -88,21 +105,36 @@ export const getById = async (req: Request, res: Response, next: NextFunction): 
       res.status(404).json({ message: "User not found" });
       return;
     }
+
+    if (isFranchise && user.franchiseId !== userFranchiseId) {
+      res.status(403).json({ message: "Access denied. User belongs to another franchise." });
+      return;
+    }
+
     res.json({ data: user });
   } catch (error) {
     next(error);
   }
 };
 
-export const create = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+export const create = async (req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> => {
   try {
     const data = req.body;
+    const { isFranchise, userFranchiseId } = getTenantScope(req);
+
     if (!data.name || typeof data.name !== "string" || !data.name.trim()) {
       res.status(400).json({ message: "Staff full name is required" });
       return;
     }
     if (!data.email || typeof data.email !== "string" || !data.email.trim()) {
       res.status(400).json({ message: "Official email address is required" });
+      return;
+    }
+
+    const email = data.email.toLowerCase().trim();
+    const existing = await prisma.user.findUnique({ where: { email } });
+    if (existing) {
+      res.status(409).json({ message: "A user account with this email address already exists." });
       return;
     }
 
@@ -127,7 +159,9 @@ export const create = async (req: Request, res: Response, next: NextFunction): P
       permissions = getDefaultPermissionsForRole(role);
     }
 
-    const email = data.email.toLowerCase().trim();
+    const franchiseId = isFranchise
+      ? userFranchiseId
+      : (data.franchiseId && typeof data.franchiseId === "string" && data.franchiseId.trim() ? data.franchiseId.trim() : null);
 
     const created = await prisma.user.create({
       data: {
@@ -136,12 +170,13 @@ export const create = async (req: Request, res: Response, next: NextFunction): P
         passwordHash,
         role,
         initials,
-        active: data.active !== undefined ? Boolean(data.active) : true,
+        active: data.status !== "Inactive",
         permissions,
         mobile: data.mobile || data.phone || null,
         dateOfBirth: data.dateOfBirth || null,
         gender: data.gender || null,
         location: data.location || data.city || null,
+        franchiseId,
       },
       select: {
         id: true,
@@ -155,6 +190,8 @@ export const create = async (req: Request, res: Response, next: NextFunction): P
         dateOfBirth: true,
         gender: true,
         location: true,
+        franchiseId: true,
+        franchise: { select: { id: true, name: true, code: true, city: true } },
         createdAt: true,
       },
     });
@@ -174,6 +211,7 @@ export const create = async (req: Request, res: Response, next: NextFunction): P
             experience: data.experience || null,
             description: data.description || null,
             dateOfJoining: data.dateOfJoining || null,
+            franchiseId,
           },
         });
       }
@@ -185,10 +223,22 @@ export const create = async (req: Request, res: Response, next: NextFunction): P
   }
 };
 
-export const update = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+export const update = async (req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> => {
   try {
     const { id } = req.params;
     const data = req.body;
+    const { isFranchise, userFranchiseId } = getTenantScope(req);
+
+    const existing = await prisma.user.findUnique({ where: { id } });
+    if (!existing) {
+      res.status(404).json({ message: "User not found" });
+      return;
+    }
+
+    if (isFranchise && existing.franchiseId !== userFranchiseId) {
+      res.status(403).json({ message: "Access denied. Cannot update staff belonging to another franchise." });
+      return;
+    }
 
     let initials = data.initials;
     if (!initials && data.name) {
@@ -216,12 +266,13 @@ export const update = async (req: Request, res: Response, next: NextFunction): P
         passwordHash,
         role: data.role,
         initials,
-        active: data.active !== undefined ? Boolean(data.active) : undefined,
+        active: data.status !== undefined ? data.status !== "Inactive" : (data.active !== undefined ? Boolean(data.active) : undefined),
         permissions,
         mobile: data.mobile || data.phone,
         dateOfBirth: data.dateOfBirth,
         gender: data.gender,
         location: data.location || data.city,
+        franchiseId: isFranchise ? undefined : (data.franchiseId !== undefined ? data.franchiseId : undefined),
       },
       select: {
         id: true,
@@ -235,6 +286,8 @@ export const update = async (req: Request, res: Response, next: NextFunction): P
         dateOfBirth: true,
         gender: true,
         location: true,
+        franchiseId: true,
+        franchise: { select: { id: true, name: true, code: true, city: true } },
         createdAt: true,
       },
     });
@@ -249,6 +302,7 @@ export const update = async (req: Request, res: Response, next: NextFunction): P
             phone: updated.mobile || existingDoc.phone,
             city: updated.location || existingDoc.city,
             gender: updated.gender || existingDoc.gender,
+            franchiseId: updated.franchiseId,
           },
         });
       }
@@ -260,10 +314,22 @@ export const update = async (req: Request, res: Response, next: NextFunction): P
   }
 };
 
-export const remove = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+export const remove = async (req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> => {
   try {
     const { id } = req.params;
+    const { isFranchise, userFranchiseId } = getTenantScope(req);
+
     const user = await prisma.user.findUnique({ where: { id } });
+    if (!user) {
+      res.status(404).json({ message: "User not found" });
+      return;
+    }
+
+    if (isFranchise && user.franchiseId !== userFranchiseId) {
+      res.status(403).json({ message: "Access denied. Cannot delete user belonging to another franchise." });
+      return;
+    }
+
     if (user?.email && user.role === "Doctor") {
       await prisma.doctor.deleteMany({ where: { email: user.email } }).catch(() => {});
     }

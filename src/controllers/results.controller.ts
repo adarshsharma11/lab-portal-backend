@@ -1,12 +1,44 @@
 import { Request, Response, NextFunction } from "express";
 import { prisma } from "../lib/prisma";
+import { AuthenticatedRequest, getTenantScope } from "../middleware/auth.middleware";
 
-export const list = async (_req: Request, res: Response, next: NextFunction): Promise<void> => {
+export const list = async (req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> => {
   try {
+    const { isFranchise, userFranchiseId, effectiveFranchiseId } = getTenantScope(req);
+
+    let whereClause: any = {};
+    if (isFranchise && userFranchiseId) {
+      whereClause = {
+        test: {
+          OR: [
+            { franchiseId: userFranchiseId },
+            { sample: { franchiseId: userFranchiseId } },
+          ],
+        },
+      };
+    } else if (effectiveFranchiseId) {
+      whereClause = {
+        test: {
+          OR: [
+            { franchiseId: effectiveFranchiseId },
+            { sample: { franchiseId: effectiveFranchiseId } },
+          ],
+        },
+      };
+    }
+
     const results = await prisma.result.findMany({
+      where: whereClause,
       include: {
         test: {
-          select: { id: true, name: true, code: true, department: true },
+          select: { 
+            id: true, 
+            name: true, 
+            code: true, 
+            department: true,
+            franchiseId: true,
+            franchise: { select: { id: true, name: true, code: true } }
+          },
         },
       },
       orderBy: { createdAt: "desc" },
@@ -17,24 +49,39 @@ export const list = async (_req: Request, res: Response, next: NextFunction): Pr
   }
 };
 
-export const getById = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+export const getById = async (req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> => {
   try {
     const { id } = req.params;
+    const { isFranchise, userFranchiseId } = getTenantScope(req);
+
     const result = await prisma.result.findUnique({
       where: { id },
-      include: { test: true },
+      include: { 
+        test: {
+          include: {
+            sample: true,
+            franchise: true,
+          }
+        } 
+      },
     });
     if (!result) {
       res.status(404).json({ message: "Result not found" });
       return;
     }
+
+    if (isFranchise && result.test.franchiseId && result.test.franchiseId !== userFranchiseId && result.test.sample?.franchiseId !== userFranchiseId) {
+      res.status(403).json({ message: "Access denied. Result belongs to another franchise." });
+      return;
+    }
+
     res.json({ data: result });
   } catch (error) {
     next(error);
   }
 };
 
-export const create = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+export const create = async (req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> => {
   try {
     const data = req.body;
     let test = null;
@@ -91,10 +138,25 @@ export const create = async (req: Request, res: Response, next: NextFunction): P
   }
 };
 
-export const update = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+export const update = async (req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> => {
   try {
     const { id } = req.params;
     const data = req.body;
+    const { isFranchise, userFranchiseId } = getTenantScope(req);
+
+    const existing = await prisma.result.findUnique({
+      where: { id },
+      include: { test: { include: { sample: true } } },
+    });
+    if (!existing) {
+      res.status(404).json({ message: "Result not found" });
+      return;
+    }
+
+    if (isFranchise && existing.test.franchiseId && existing.test.franchiseId !== userFranchiseId && existing.test.sample?.franchiseId !== userFranchiseId) {
+      res.status(403).json({ message: "Access denied. Cannot update result belonging to another franchise." });
+      return;
+    }
 
     let testIdUpdate: string | undefined = undefined;
     if (data.testId && typeof data.testId === "string" && data.testId.trim()) {
@@ -130,9 +192,25 @@ export const update = async (req: Request, res: Response, next: NextFunction): P
   }
 };
 
-export const remove = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+export const remove = async (req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> => {
   try {
     const { id } = req.params;
+    const { isFranchise, userFranchiseId } = getTenantScope(req);
+
+    const existing = await prisma.result.findUnique({
+      where: { id },
+      include: { test: { include: { sample: true } } },
+    });
+    if (!existing) {
+      res.status(404).json({ message: "Result not found" });
+      return;
+    }
+
+    if (isFranchise && existing.test.franchiseId && existing.test.franchiseId !== userFranchiseId && existing.test.sample?.franchiseId !== userFranchiseId) {
+      res.status(403).json({ message: "Access denied. Cannot delete result belonging to another franchise." });
+      return;
+    }
+
     await prisma.result.delete({ where: { id } });
     res.json({ message: "Result deleted successfully" });
   } catch (error) {

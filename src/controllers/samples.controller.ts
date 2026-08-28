@@ -1,11 +1,44 @@
 import { Request, Response, NextFunction } from "express";
 import { prisma } from "../lib/prisma";
+import { AuthenticatedRequest, getTenantScope } from "../middleware/auth.middleware";
 
-export const list = async (_req: Request, res: Response, next: NextFunction): Promise<void> => {
+export const list = async (req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> => {
   try {
+    const { isFranchise, userFranchiseId, effectiveFranchiseId } = getTenantScope(req);
+    const search = typeof req.query.search === "string" ? req.query.search.trim().toLowerCase() : "";
+
+    if (isFranchise && !userFranchiseId) {
+      res.json({ data: [] });
+      return;
+    }
+
+    let whereClause: any = {};
+    if (isFranchise) {
+      whereClause = { franchiseId: userFranchiseId };
+    } else if (effectiveFranchiseId) {
+      whereClause = { franchiseId: effectiveFranchiseId };
+    }
+
+    if (search) {
+      whereClause = {
+        AND: [
+          whereClause,
+          {
+            OR: [
+              { accession: { contains: search, mode: "insensitive" } },
+              { barcode: { contains: search, mode: "insensitive" } },
+              { patient: { name: { contains: search, mode: "insensitive" } } },
+            ],
+          },
+        ],
+      };
+    }
+
     const samples = await prisma.sample.findMany({
+      where: whereClause,
       include: {
-        patient: { select: { id: true, name: true, patientCode: true } },
+        patient: { select: { id: true, name: true, patientCode: true, age: true, sex: true, phone: true } },
+        franchise: { select: { id: true, name: true, code: true, city: true } },
         tests: true,
       },
       orderBy: { collectedAt: "desc" },
@@ -16,13 +49,16 @@ export const list = async (_req: Request, res: Response, next: NextFunction): Pr
   }
 };
 
-export const getById = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+export const getById = async (req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> => {
   try {
     const { id } = req.params;
+    const { isFranchise, userFranchiseId } = getTenantScope(req);
+
     const sample = await prisma.sample.findUnique({
       where: { id },
       include: {
         patient: true,
+        franchise: { select: { id: true, name: true, code: true, city: true } },
         tests: {
           include: { results: true },
         },
@@ -33,17 +69,24 @@ export const getById = async (req: Request, res: Response, next: NextFunction): 
       res.status(404).json({ message: "Sample not found" });
       return;
     }
+
+    if (isFranchise && sample.franchiseId !== userFranchiseId) {
+      res.status(403).json({ message: "Access denied. Sample belongs to another franchise." });
+      return;
+    }
+
     res.json({ data: sample });
   } catch (error) {
     next(error);
   }
 };
 
-export const create = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+export const create = async (req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> => {
   try {
     const data = req.body;
-    let patient = null;
+    const { isFranchise, userFranchiseId } = getTenantScope(req);
 
+    let patient = null;
     if (data.patientId && typeof data.patientId === "string" && data.patientId.trim()) {
       const pid = data.patientId.trim();
       patient = await prisma.patient.findFirst({
@@ -53,12 +96,15 @@ export const create = async (req: Request, res: Response, next: NextFunction): P
             { patientCode: { equals: pid, mode: "insensitive" } },
             { name: { contains: pid, mode: "insensitive" } },
           ],
+          ...(isFranchise && userFranchiseId ? { franchiseId: userFranchiseId } : {}),
         },
       });
     }
 
     if (!patient) {
-      patient = await prisma.patient.findFirst();
+      patient = await prisma.patient.findFirst({
+        where: isFranchise && userFranchiseId ? { franchiseId: userFranchiseId } : undefined,
+      });
     }
 
     if (!patient) {
@@ -66,12 +112,16 @@ export const create = async (req: Request, res: Response, next: NextFunction): P
       return;
     }
 
+    const franchiseId = isFranchise
+      ? userFranchiseId
+      : (data.franchiseId || patient.franchiseId || null);
+
     const accession = data.accession && data.accession.trim()
       ? data.accession.trim()
       : `LIS-${Date.now().toString().slice(-6)}`;
     const barcode = data.barcode && data.barcode.trim()
       ? data.barcode.trim()
-      : `BC${Date.now()}`;
+      : `BC${Date.now().toString().slice(-8)}`;
 
     let collectedAt = new Date();
     if (data.collectedAt) {
@@ -90,6 +140,7 @@ export const create = async (req: Request, res: Response, next: NextFunction): P
         accession,
         barcode,
         patientId: patient.id,
+        franchiseId,
         sampleType: data.sampleType || "Blood",
         collectedAt,
         receivedAt,
@@ -98,7 +149,10 @@ export const create = async (req: Request, res: Response, next: NextFunction): P
         status: data.status || "Collected",
         notes: data.notes || null,
       },
-      include: { patient: true },
+      include: { 
+        patient: true,
+        franchise: true,
+      },
     });
 
     await prisma.auditActivity.create({
@@ -116,10 +170,22 @@ export const create = async (req: Request, res: Response, next: NextFunction): P
   }
 };
 
-export const update = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+export const update = async (req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> => {
   try {
     const { id } = req.params;
     const data = req.body;
+    const { isFranchise, userFranchiseId } = getTenantScope(req);
+
+    const existing = await prisma.sample.findUnique({ where: { id } });
+    if (!existing) {
+      res.status(404).json({ message: "Sample not found" });
+      return;
+    }
+
+    if (isFranchise && existing.franchiseId !== userFranchiseId) {
+      res.status(403).json({ message: "Access denied. Cannot update sample belonging to another franchise." });
+      return;
+    }
 
     let patientIdUpdate: string | undefined = undefined;
     if (data.patientId && typeof data.patientId === "string" && data.patientId.trim()) {
@@ -158,6 +224,7 @@ export const update = async (req: Request, res: Response, next: NextFunction): P
         accession: data.accession,
         barcode: data.barcode,
         patientId: patientIdUpdate,
+        franchiseId: isFranchise ? undefined : (data.franchiseId !== undefined ? data.franchiseId : undefined),
         sampleType: data.sampleType,
         collectedAt: collectedAtUpdate,
         receivedAt: receivedAtUpdate,
@@ -166,6 +233,10 @@ export const update = async (req: Request, res: Response, next: NextFunction): P
         status: data.status,
         notes: data.notes,
       },
+      include: {
+        patient: true,
+        franchise: true,
+      },
     });
     res.json({ data: updated });
   } catch (error) {
@@ -173,9 +244,22 @@ export const update = async (req: Request, res: Response, next: NextFunction): P
   }
 };
 
-export const remove = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+export const remove = async (req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> => {
   try {
     const { id } = req.params;
+    const { isFranchise, userFranchiseId } = getTenantScope(req);
+
+    const existing = await prisma.sample.findUnique({ where: { id } });
+    if (!existing) {
+      res.status(404).json({ message: "Sample not found" });
+      return;
+    }
+
+    if (isFranchise && existing.franchiseId !== userFranchiseId) {
+      res.status(403).json({ message: "Access denied. Cannot delete sample belonging to another franchise." });
+      return;
+    }
+
     await prisma.sample.delete({ where: { id } });
     res.json({ message: "Sample deleted successfully" });
   } catch (error) {
