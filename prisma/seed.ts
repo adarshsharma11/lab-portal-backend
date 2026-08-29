@@ -335,7 +335,7 @@ async function main() {
       name: "CBC Standard",
       department: "Hematology",
       tests: ["CBC", "Hemoglobin", "RBC", "WBC", "Platelets"],
-      header: "BLDignostics LIMS Reference Laboratory",
+      header: "BL Dignostic LIMS Reference Laboratory",
       footer: "This is a computer-generated report and does not require manual signature. Interpret clinically.",
       referenceRanges: "Adult Indian reference ranges",
       notes: "Specimen processed on automated Sysmex XN-1000 hematology system.",
@@ -530,7 +530,7 @@ async function main() {
   await prisma.laboratorySetting.create({
     data: {
       id: "default",
-      name: "BLDignostics LIMS Reference Laboratory",
+      name: "BL Dignostic LIMS Reference Laboratory",
       address: "142, Healthcare Avenue, Bengaluru, Karnataka 560001, India",
       phone: "+91 80 4455 6677",
       email: "lab@pathologylis.example",
@@ -543,7 +543,7 @@ async function main() {
   await prisma.reportSetting.create({
     data: {
       id: "default",
-      header: "BLDignostics LIMS Reference Laboratory",
+      header: "BL Dignostic LIMS Reference Laboratory",
       footer: "This is a computer-generated report and does not require manual signature. Interpret clinically.",
       signature: "Dr. Ananya Rao, MD (Pathology)\nConsultant Pathologist",
       reportNumberingPrefix: "RPT-",

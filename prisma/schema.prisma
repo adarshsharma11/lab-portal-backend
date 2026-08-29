@@ -455,7 +455,7 @@ model QCViolation {
 
 model LaboratorySetting {
   id            String   @id @default("default")
-  name          String   @default("BLDignostics LIMS Reference Laboratory")
+  name          String   @default("BL Dignostic LIMS Reference Laboratory")
   logo          String?
   address       String   @default("142, Healthcare Avenue, Bengaluru, Karnataka 560001, India")
   phone         String   @default("+91 80 4455 6677")
@@ -470,7 +470,7 @@ model LaboratorySetting {
 
 model ReportSetting {
   id                     String   @id @default("default")
-  header                 String   @default("BLDignostics LIMS Reference Laboratory")
+  header                 String   @default("BL Dignostic LIMS Reference Laboratory")
   logo                   String?
   footer                 String   @default("This is a computer-generated report and does not require manual signature. Interpret clinically.")
   signature              String?  @default("Dr. Ananya Rao, MD (Pathology)\nConsultant Pathologist")

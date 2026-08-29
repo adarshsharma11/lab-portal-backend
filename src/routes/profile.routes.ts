@@ -1,10 +1,10 @@
 import { Router } from "express";
 import * as ProfileController from "../controllers/profile.controller";
-import { optionalAuth } from "../middleware/auth.middleware";
+import { protectAuth } from "../middleware/auth.middleware";
 
 const router = Router();
 
-router.get("/", optionalAuth, ProfileController.getProfile);
-router.put("/", optionalAuth, ProfileController.updateProfile);
+router.get("/", protectAuth, ProfileController.getProfile);
+router.put("/", protectAuth, ProfileController.updateProfile);
 
 export default router;

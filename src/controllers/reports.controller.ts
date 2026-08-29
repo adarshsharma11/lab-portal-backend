@@ -425,7 +425,7 @@ export const createTemplate = async (req: Request, res: Response, next: NextFunc
         name: data.name.trim(),
         department: data.department || "Hematology",
         tests,
-        header: data.header || "BLDignostics LIMS Reference Laboratory",
+        header: data.header || "BL Dignostic LIMS Reference Laboratory",
         footer: data.footer || "This is a computer-generated report.",
         referenceRanges: data.referenceRanges || null,
         notes: data.notes || null,
