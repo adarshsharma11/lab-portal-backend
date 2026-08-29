@@ -24,6 +24,7 @@ import qcRoutes from "./routes/qc.routes";
 import settingsRoutes from "./routes/settings.routes";
 import profileRoutes from "./routes/profile.routes";
 import franchisesRoutes from "./routes/franchises.routes";
+import testMastersRoutes from "./routes/test-masters.routes";
 
 export const createApp = (): Express => {
   const app = express();
@@ -79,6 +80,7 @@ export const createApp = (): Express => {
   app.use("/api/settings", settingsRoutes);
   app.use("/api/profile", profileRoutes);
   app.use("/api/franchises", franchisesRoutes);
+  app.use("/api/test-masters", testMastersRoutes);
 
   // 404 & Error handlers
   app.use(notFoundHandler);

@@ -1,6 +1,7 @@
 import { PrismaClient } from "@prisma/client";
 import bcrypt from "bcryptjs";
 import process from "node:process";
+import { seedTestMasters } from "./seed_test_masters";
 
 const prisma = new PrismaClient();
 
@@ -621,6 +622,9 @@ async function main() {
       { id: "a5", type: "Patient registered", subject: "Neha Kulkarni", detail: "PT-24026 registered", time: "1 hr ago", createdAt: new Date(Date.now() - 60 * 60000) },
     ],
   });
+
+  // 15. Seed Test Master Catalog
+  await seedTestMasters();
 
   console.log("Database seeded successfully!");
 }

@@ -94,6 +94,10 @@ npm run seed
 ```
 *(Or directly via `npx prisma db seed`)*
 
+
+# 4. Seed the 1,042 Test Master records into the database
+node --require esbuild-register prisma/seed_test_masters.ts
+
 ---
 
 ## 🏃 Running the Server

@@ -556,3 +556,26 @@ model AuditActivity {
 
   @@map("audit_activities")
 }
+
+model TestMaster {
+  id              String   @id @default(uuid())
+  itemId          String?
+  code            String
+  name            String
+  department      String
+  rate            Float    @default(0)
+  mrp             Float    @default(0)
+  sampleType      String?  @default("Blood")
+  referenceRange  String?
+  unit            String?
+  turnaroundHours Int      @default(24)
+  status          String   @default("Active")
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@map("test_masters")
+  @@index([code])
+  @@index([name])
+  @@index([department])
+}
+
