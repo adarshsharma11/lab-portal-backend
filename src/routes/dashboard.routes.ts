@@ -13,5 +13,6 @@ router.get("/turnaround", optionalAuth, DashboardController.getTurnaround);
 router.get("/recent-activity", optionalAuth, DashboardController.getRecentActivity);
 router.get("/pending-work", optionalAuth, DashboardController.getPendingWork);
 router.get("/critical-results", optionalAuth, DashboardController.getCriticalResults);
+router.get("/profit-loss", optionalAuth, DashboardController.getProfitLoss);
 
 export default router;
