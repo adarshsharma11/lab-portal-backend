@@ -108,10 +108,21 @@ export const create = async (req: AuthenticatedRequest, res: Response, next: Nex
       ? data.patientCode.trim()
       : `PT-${Math.floor(10000 + Math.random() * 90000)}`;
 
-    // Franchise Assignment
-    const franchiseId = isFranchise
-      ? userFranchiseId
-      : (data.franchiseId && typeof data.franchiseId === "string" && data.franchiseId.trim() ? data.franchiseId.trim() : null);
+    // Franchise Assignment: Mandatory for Admin, locked for non-Admin
+    let franchiseId: string;
+    if (isFranchise) {
+      if (!userFranchiseId) {
+        res.status(403).json({ message: "User is not assigned to any franchise." });
+        return;
+      }
+      franchiseId = userFranchiseId;
+    } else {
+      if (!data.franchiseId || typeof data.franchiseId !== "string" || !data.franchiseId.trim()) {
+        res.status(400).json({ message: "Franchise selection is required." });
+        return;
+      }
+      franchiseId = data.franchiseId.trim();
+    }
 
     let referringDoctorId: string | null = null;
     if (data.referringDoctorId && typeof data.referringDoctorId === "string" && data.referringDoctorId.trim()) {

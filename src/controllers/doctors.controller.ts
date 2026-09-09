@@ -92,9 +92,20 @@ export const create = async (req: AuthenticatedRequest, res: Response, next: Nex
       return;
     }
 
-    const franchiseId = isFranchise
-      ? userFranchiseId
-      : (data.franchiseId && typeof data.franchiseId === "string" && data.franchiseId.trim() ? data.franchiseId.trim() : null);
+    let franchiseId: string;
+    if (isFranchise) {
+      if (!userFranchiseId) {
+        res.status(403).json({ message: "User is not assigned to any franchise." });
+        return;
+      }
+      franchiseId = userFranchiseId;
+    } else {
+      if (!data.franchiseId || typeof data.franchiseId !== "string" || !data.franchiseId.trim()) {
+        res.status(400).json({ message: "Franchise selection is required for this doctor." });
+        return;
+      }
+      franchiseId = data.franchiseId.trim();
+    }
 
     const created = await prisma.doctor.create({
       data: {

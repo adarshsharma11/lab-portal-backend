@@ -81,8 +81,22 @@ export const create = async (req: AuthenticatedRequest, res: Response, next: Nex
   try {
     const data = req.body;
     const { isFranchise, userFranchiseId } = getTenantScope(req);
-    let patient = null;
+    let franchiseId: string;
+    if (isFranchise) {
+      if (!userFranchiseId) {
+        res.status(403).json({ message: "User is not assigned to any franchise." });
+        return;
+      }
+      franchiseId = userFranchiseId;
+    } else {
+      if (!data.franchiseId || typeof data.franchiseId !== "string" || !data.franchiseId.trim()) {
+        res.status(400).json({ message: "Franchise selection is required for this invoice." });
+        return;
+      }
+      franchiseId = data.franchiseId.trim();
+    }
 
+    let patient = null;
     if (data.patientId && typeof data.patientId === "string" && data.patientId.trim()) {
       const pid = data.patientId.trim();
       patient = await prisma.patient.findFirst({
@@ -92,19 +106,20 @@ export const create = async (req: AuthenticatedRequest, res: Response, next: Nex
             { patientCode: { equals: pid, mode: "insensitive" } },
             { name: { contains: pid, mode: "insensitive" } },
           ],
-          ...(isFranchise && userFranchiseId ? { franchiseId: userFranchiseId } : {}),
         },
       });
-    }
 
-    if (!patient) {
-      patient = await prisma.patient.findFirst({
-        where: isFranchise && userFranchiseId ? { franchiseId: userFranchiseId } : undefined,
-      });
-    }
+      if (!patient) {
+        res.status(400).json({ message: "Specified patient was not found." });
+        return;
+      }
 
-    if (!patient) {
-      res.status(400).json({ message: "No registered patient found. Please register a patient first." });
+      if (patient.franchiseId && patient.franchiseId !== franchiseId) {
+        res.status(400).json({ message: "Selected patient does not belong to the selected franchise." });
+        return;
+      }
+    } else {
+      res.status(400).json({ message: "Patient selection is required for this invoice." });
       return;
     }
 
@@ -122,17 +137,20 @@ export const create = async (req: AuthenticatedRequest, res: Response, next: Nex
     }
 
     if (!doctor) {
-      doctor = await prisma.doctor.findFirst();
+      doctor = await prisma.doctor.findFirst({
+        where: {
+          OR: [
+            { franchiseId },
+            { franchiseId: null },
+          ],
+        },
+      });
     }
 
     if (!doctor) {
       res.status(400).json({ message: "No registered doctor found. Please add a doctor first." });
       return;
     }
-
-    const franchiseId = isFranchise
-      ? userFranchiseId
-      : (data.franchiseId || patient.franchiseId || null);
 
     const billNumber = data.billNumber && data.billNumber.trim()
       ? data.billNumber.trim()

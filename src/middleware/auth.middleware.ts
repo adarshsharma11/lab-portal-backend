@@ -116,12 +116,13 @@ export const requireRoles = (...allowedRoles: string[]) => {
 
 /**
  * Returns tenant scope for querying and mutating resources.
- * - If user is a Franchise, `isFranchise` is true and `franchiseId` is strictly locked to `req.user.franchiseId`.
+ * - If user is not an Admin (Franchise, Technician, Doctor, Pathologist, Billing, Staff, etc.),
+ *   `isFranchise` is true and `franchiseId` is strictly locked to `req.user.franchiseId`.
  * - If user is an Admin, `isAdmin` is true and `franchiseId` can be optionally filtered via `req.query.franchiseId`.
  */
 export const getTenantScope = (req: AuthenticatedRequest) => {
-  const isFranchise = req.user?.role === "Franchise";
   const isAdmin = req.user?.role === "Admin" || req.user?.role === "Administrator";
+  const isFranchise = !isAdmin;
   const userFranchiseId = req.user?.franchiseId ?? null;
 
   let queryFranchiseId: string | null = null;
@@ -129,7 +130,11 @@ export const getTenantScope = (req: AuthenticatedRequest) => {
     queryFranchiseId = req.query.franchiseId.trim();
   }
 
-  const effectiveFranchiseId = isFranchise ? userFranchiseId : queryFranchiseId;
+  // Non-admin users are strictly locked to their assigned franchise.
+  // If a non-admin has no franchise assigned, use a non-matching sentinel so cross-franchise data is never exposed.
+  const effectiveFranchiseId = isFranchise
+    ? (userFranchiseId ?? "__NO_FRANCHISE_ACCESS__")
+    : queryFranchiseId;
 
   return {
     isFranchise,

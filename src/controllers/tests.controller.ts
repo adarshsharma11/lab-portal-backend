@@ -17,8 +17,8 @@ export const list = async (req: AuthenticatedRequest, res: Response, next: NextF
       whereClause = {
         OR: [
           { franchiseId: userFranchiseId },
-          { franchiseId: null },
           { sample: { franchiseId: userFranchiseId } },
+          { patient: { franchiseId: userFranchiseId } },
         ],
       };
     } else if (effectiveFranchiseId) {
@@ -26,6 +26,7 @@ export const list = async (req: AuthenticatedRequest, res: Response, next: NextF
         OR: [
           { franchiseId: effectiveFranchiseId },
           { sample: { franchiseId: effectiveFranchiseId } },
+          { patient: { franchiseId: effectiveFranchiseId } },
         ],
       };
     }
@@ -39,6 +40,8 @@ export const list = async (req: AuthenticatedRequest, res: Response, next: NextF
               { name: { contains: search, mode: "insensitive" } },
               { code: { contains: search, mode: "insensitive" } },
               { department: { contains: search, mode: "insensitive" } },
+              { patient: { name: { contains: search, mode: "insensitive" } } },
+              { patient: { patientCode: { contains: search, mode: "insensitive" } } },
             ],
           },
         ],
@@ -49,8 +52,9 @@ export const list = async (req: AuthenticatedRequest, res: Response, next: NextF
       where: whereClause,
       include: {
         franchise: { select: { id: true, name: true, code: true, city: true } },
+        patient: { select: { id: true, name: true, patientCode: true, age: true, sex: true, phone: true } },
         sample: {
-          select: { id: true, accession: true, patient: { select: { id: true, name: true } } },
+          select: { id: true, accession: true, barcode: true, patient: { select: { id: true, name: true, patientCode: true } } },
         },
         results: true,
       },
@@ -71,6 +75,7 @@ export const getById = async (req: AuthenticatedRequest, res: Response, next: Ne
       where: { id },
       include: {
         franchise: { select: { id: true, name: true, code: true, city: true } },
+        patient: true,
         sample: {
           include: { patient: true },
         },
@@ -82,7 +87,13 @@ export const getById = async (req: AuthenticatedRequest, res: Response, next: Ne
       return;
     }
 
-    if (isFranchise && test.franchiseId && test.franchiseId !== userFranchiseId && test.sample?.franchiseId !== userFranchiseId) {
+    if (
+      isFranchise &&
+      test.franchiseId &&
+      test.franchiseId !== userFranchiseId &&
+      test.sample?.franchiseId !== userFranchiseId &&
+      test.patient?.franchiseId !== userFranchiseId
+    ) {
       res.status(403).json({ message: "Access denied. Test belongs to another franchise." });
       return;
     }
@@ -107,6 +118,50 @@ export const create = async (req: AuthenticatedRequest, res: Response, next: Nex
       return;
     }
 
+    let franchiseId: string;
+    if (isFranchise) {
+      if (!userFranchiseId) {
+        res.status(403).json({ message: "User is not assigned to any franchise." });
+        return;
+      }
+      franchiseId = userFranchiseId;
+    } else {
+      if (!data.franchiseId || typeof data.franchiseId !== "string" || !data.franchiseId.trim()) {
+        res.status(400).json({ message: "Franchise selection is required for this test." });
+        return;
+      }
+      franchiseId = data.franchiseId.trim();
+    }
+
+    // Resolve & Validate Patient
+    let patientId: string | null = null;
+    if (data.patientId && typeof data.patientId === "string" && data.patientId.trim()) {
+      const pid = data.patientId.trim();
+      const existingPatient = await prisma.patient.findFirst({
+        where: {
+          OR: [
+            { id: pid },
+            { patientCode: { equals: pid, mode: "insensitive" } },
+            { name: { contains: pid, mode: "insensitive" } },
+          ],
+        },
+      });
+
+      if (!existingPatient) {
+        res.status(400).json({ message: "Specified patient was not found." });
+        return;
+      }
+
+      // Enforce strict franchise match
+      if (existingPatient.franchiseId && existingPatient.franchiseId !== franchiseId) {
+        res.status(400).json({ message: "Selected patient does not belong to the selected franchise." });
+        return;
+      }
+
+      patientId = existingPatient.id;
+    }
+
+    // Resolve & Validate Sample if provided
     let sampleId: string | null = null;
     if (data.sampleId && typeof data.sampleId === "string" && data.sampleId.trim()) {
       const existingSample = await prisma.sample.findFirst({
@@ -118,12 +173,17 @@ export const create = async (req: AuthenticatedRequest, res: Response, next: Nex
           ],
         },
       });
-      if (existingSample) sampleId = existingSample.id;
+      if (existingSample) {
+        if (existingSample.franchiseId && existingSample.franchiseId !== franchiseId) {
+          res.status(400).json({ message: "Selected sample does not belong to the selected franchise." });
+          return;
+        }
+        sampleId = existingSample.id;
+        if (!patientId && existingSample.patientId) {
+          patientId = existingSample.patientId;
+        }
+      }
     }
-
-    const franchiseId = isFranchise
-      ? userFranchiseId
-      : (data.franchiseId || null);
 
     const created = await prisma.test.create({
       data: {
@@ -131,6 +191,7 @@ export const create = async (req: AuthenticatedRequest, res: Response, next: Nex
         name: data.name.trim(),
         department: data.department || "Hematology",
         sampleId,
+        patientId,
         franchiseId,
         sampleType: data.sampleType || "Blood",
         price: Number(data.price) || 0,
@@ -141,6 +202,7 @@ export const create = async (req: AuthenticatedRequest, res: Response, next: Nex
       },
       include: {
         franchise: true,
+        patient: true,
         sample: true,
       },
     });
@@ -149,7 +211,7 @@ export const create = async (req: AuthenticatedRequest, res: Response, next: Nex
       data: {
         type: "Test registered",
         subject: created.name,
-        detail: `${created.department} · ${created.code}`,
+        detail: `${created.department} · ${created.code}${created.patient ? ` · Patient: ${created.patient.name}` : ""}`,
         time: "Just now",
       },
     }).catch(() => {});
@@ -168,16 +230,51 @@ export const update = async (req: AuthenticatedRequest, res: Response, next: Nex
 
     const existing = await prisma.test.findUnique({ 
       where: { id },
-      include: { sample: true },
+      include: { sample: true, patient: true },
     });
     if (!existing) {
       res.status(404).json({ message: "Test not found" });
       return;
     }
 
-    if (isFranchise && existing.franchiseId && existing.franchiseId !== userFranchiseId && existing.sample?.franchiseId !== userFranchiseId) {
+    const currentFranchiseId = isFranchise ? userFranchiseId : (data.franchiseId || existing.franchiseId);
+
+    if (
+      isFranchise &&
+      existing.franchiseId &&
+      existing.franchiseId !== userFranchiseId &&
+      existing.sample?.franchiseId !== userFranchiseId &&
+      existing.patient?.franchiseId !== userFranchiseId
+    ) {
       res.status(403).json({ message: "Access denied. Cannot update test belonging to another franchise." });
       return;
+    }
+
+    let patientIdUpdate: string | null | undefined = undefined;
+    if (data.patientId !== undefined) {
+      if (!data.patientId || (typeof data.patientId === "string" && !data.patientId.trim())) {
+        patientIdUpdate = null;
+      } else {
+        const pid = String(data.patientId).trim();
+        const existingPatient = await prisma.patient.findFirst({
+          where: {
+            OR: [
+              { id: pid },
+              { patientCode: { equals: pid, mode: "insensitive" } },
+              { name: { contains: pid, mode: "insensitive" } },
+            ],
+          },
+        });
+        if (existingPatient) {
+          if (currentFranchiseId && existingPatient.franchiseId && existingPatient.franchiseId !== currentFranchiseId) {
+            res.status(400).json({ message: "Selected patient does not belong to this test's franchise." });
+            return;
+          }
+          patientIdUpdate = existingPatient.id;
+        } else {
+          patientIdUpdate = null;
+        }
+      }
     }
 
     let sampleIdUpdate: string | null | undefined = undefined;
@@ -194,7 +291,15 @@ export const update = async (req: AuthenticatedRequest, res: Response, next: Nex
             ],
           },
         });
-        sampleIdUpdate = existingSample ? existingSample.id : null;
+        if (existingSample) {
+          if (currentFranchiseId && existingSample.franchiseId && existingSample.franchiseId !== currentFranchiseId) {
+            res.status(400).json({ message: "Selected sample does not belong to this test's franchise." });
+            return;
+          }
+          sampleIdUpdate = existingSample.id;
+        } else {
+          sampleIdUpdate = null;
+        }
       }
     }
 
@@ -205,6 +310,7 @@ export const update = async (req: AuthenticatedRequest, res: Response, next: Nex
         name: data.name ? data.name.trim() : undefined,
         department: data.department,
         sampleId: sampleIdUpdate,
+        patientId: patientIdUpdate,
         franchiseId: isFranchise ? undefined : (data.franchiseId !== undefined ? data.franchiseId : undefined),
         sampleType: data.sampleType,
         price: data.price !== undefined ? Number(data.price) : undefined,
@@ -215,6 +321,7 @@ export const update = async (req: AuthenticatedRequest, res: Response, next: Nex
       },
       include: {
         franchise: true,
+        patient: true,
         sample: true,
       },
     });
@@ -231,14 +338,20 @@ export const remove = async (req: AuthenticatedRequest, res: Response, next: Nex
 
     const existing = await prisma.test.findUnique({ 
       where: { id },
-      include: { sample: true },
+      include: { sample: true, patient: true },
     });
     if (!existing) {
       res.status(404).json({ message: "Test not found" });
       return;
     }
 
-    if (isFranchise && existing.franchiseId && existing.franchiseId !== userFranchiseId && existing.sample?.franchiseId !== userFranchiseId) {
+    if (
+      isFranchise &&
+      existing.franchiseId &&
+      existing.franchiseId !== userFranchiseId &&
+      existing.sample?.franchiseId !== userFranchiseId &&
+      existing.patient?.franchiseId !== userFranchiseId
+    ) {
       res.status(403).json({ message: "Access denied. Cannot delete test belonging to another franchise." });
       return;
     }
@@ -249,3 +362,4 @@ export const remove = async (req: AuthenticatedRequest, res: Response, next: Nex
     next(error);
   }
 };
+

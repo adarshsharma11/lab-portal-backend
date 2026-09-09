@@ -133,9 +133,23 @@ export const createReport = async (req: AuthenticatedRequest, res: Response, nex
       return;
     }
 
-    const franchiseId = isFranchise
-      ? userFranchiseId
-      : (data.franchiseId || patient.franchiseId || null);
+    let franchiseId: string;
+    if (isFranchise) {
+      if (!userFranchiseId) {
+        res.status(403).json({ message: "User is not assigned to any franchise." });
+        return;
+      }
+      franchiseId = userFranchiseId;
+    } else {
+      const resolved = (data.franchiseId && typeof data.franchiseId === "string" && data.franchiseId.trim())
+        ? data.franchiseId.trim()
+        : patient.franchiseId;
+      if (!resolved) {
+        res.status(400).json({ message: "Franchise selection is required for this report." });
+        return;
+      }
+      franchiseId = resolved;
+    }
 
     // 2. Resolve or Create Sample
     if (data.sampleId && typeof data.sampleId === "string" && data.sampleId.trim()) {

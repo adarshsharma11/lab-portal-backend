@@ -120,7 +120,7 @@ export const getById = async (req: AuthenticatedRequest, res: Response, next: Ne
 export const create = async (req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> => {
   try {
     const data = req.body;
-    const { isFranchise, userFranchiseId } = getTenantScope(req);
+    const { isFranchise, isAdmin, userFranchiseId } = getTenantScope(req);
 
     if (!data.name || typeof data.name !== "string" || !data.name.trim()) {
       res.status(400).json({ message: "Staff full name is required" });
@@ -159,9 +159,25 @@ export const create = async (req: AuthenticatedRequest, res: Response, next: Nex
       permissions = getDefaultPermissionsForRole(role);
     }
 
-    const franchiseId = isFranchise
-      ? userFranchiseId
-      : (data.franchiseId && typeof data.franchiseId === "string" && data.franchiseId.trim() ? data.franchiseId.trim() : null);
+    let franchiseId: string | null = null;
+    if (isFranchise) {
+      if (!userFranchiseId) {
+        res.status(403).json({ message: "User is not assigned to any franchise." });
+        return;
+      }
+      franchiseId = userFranchiseId;
+    } else {
+      // If Admin is creating a user/staff account (other than a global Admin), franchise selection is required
+      if (role !== "Admin" && role !== "Administrator") {
+        if (!data.franchiseId || typeof data.franchiseId !== "string" || !data.franchiseId.trim()) {
+          res.status(400).json({ message: "Franchise selection is required for this staff member." });
+          return;
+        }
+        franchiseId = data.franchiseId.trim();
+      } else {
+        franchiseId = data.franchiseId && typeof data.franchiseId === "string" && data.franchiseId.trim() ? data.franchiseId.trim() : null;
+      }
+    }
 
     const created = await prisma.user.create({
       data: {
@@ -325,6 +341,15 @@ export const remove = async (req: AuthenticatedRequest, res: Response, next: Nex
       return;
     }
 
+    // Prevent user from deleting their own logged-in account
+    if (
+      req.user?.id === id ||
+      (req.user?.email && user.email && req.user.email.toLowerCase() === user.email.toLowerCase())
+    ) {
+      res.status(400).json({ message: "You cannot delete your own logged-in account." });
+      return;
+    }
+
     if (isFranchise && user.franchiseId !== userFranchiseId) {
       res.status(403).json({ message: "Access denied. Cannot delete user belonging to another franchise." });
       return;
@@ -339,3 +364,4 @@ export const remove = async (req: AuthenticatedRequest, res: Response, next: Nex
     next(error);
   }
 };
+

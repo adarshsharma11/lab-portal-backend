@@ -86,6 +86,21 @@ export const create = async (req: AuthenticatedRequest, res: Response, next: Nex
     const data = req.body;
     const { isFranchise, userFranchiseId } = getTenantScope(req);
 
+    let franchiseId: string;
+    if (isFranchise) {
+      if (!userFranchiseId) {
+        res.status(403).json({ message: "User is not assigned to any franchise." });
+        return;
+      }
+      franchiseId = userFranchiseId;
+    } else {
+      if (!data.franchiseId || typeof data.franchiseId !== "string" || !data.franchiseId.trim()) {
+        res.status(400).json({ message: "Franchise selection is required for this sample." });
+        return;
+      }
+      franchiseId = data.franchiseId.trim();
+    }
+
     let patient = null;
     if (data.patientId && typeof data.patientId === "string" && data.patientId.trim()) {
       const pid = data.patientId.trim();
@@ -96,25 +111,22 @@ export const create = async (req: AuthenticatedRequest, res: Response, next: Nex
             { patientCode: { equals: pid, mode: "insensitive" } },
             { name: { contains: pid, mode: "insensitive" } },
           ],
-          ...(isFranchise && userFranchiseId ? { franchiseId: userFranchiseId } : {}),
         },
       });
-    }
 
-    if (!patient) {
-      patient = await prisma.patient.findFirst({
-        where: isFranchise && userFranchiseId ? { franchiseId: userFranchiseId } : undefined,
-      });
-    }
+      if (!patient) {
+        res.status(400).json({ message: "Specified patient was not found." });
+        return;
+      }
 
-    if (!patient) {
-      res.status(400).json({ message: "No registered patient found. Please register a patient before creating a sample." });
+      if (patient.franchiseId && patient.franchiseId !== franchiseId) {
+        res.status(400).json({ message: "Selected patient does not belong to the selected franchise." });
+        return;
+      }
+    } else {
+      res.status(400).json({ message: "Patient selection is required for this sample." });
       return;
     }
-
-    const franchiseId = isFranchise
-      ? userFranchiseId
-      : (data.franchiseId || patient.franchiseId || null);
 
     const accession = data.accession && data.accession.trim()
       ? data.accession.trim()
@@ -187,6 +199,8 @@ export const update = async (req: AuthenticatedRequest, res: Response, next: Nex
       return;
     }
 
+    const currentFranchiseId = isFranchise ? userFranchiseId : (data.franchiseId || existing.franchiseId);
+
     let patientIdUpdate: string | undefined = undefined;
     if (data.patientId && typeof data.patientId === "string" && data.patientId.trim()) {
       const pid = data.patientId.trim();
@@ -199,7 +213,13 @@ export const update = async (req: AuthenticatedRequest, res: Response, next: Nex
           ],
         },
       });
-      if (patient) patientIdUpdate = patient.id;
+      if (patient) {
+        if (currentFranchiseId && patient.franchiseId && patient.franchiseId !== currentFranchiseId) {
+          res.status(400).json({ message: "Selected patient does not belong to this sample's franchise." });
+          return;
+        }
+        patientIdUpdate = patient.id;
+      }
     }
 
     let collectedAtUpdate: Date | undefined = undefined;
