@@ -22,6 +22,22 @@ export const updateLaboratory = async (req: Request, res: Response, next: NextFu
       update: data,
       create: { id: "default", ...data },
     });
+
+    if (data.logo !== undefined) {
+      await prisma.reportSetting.upsert({
+        where: { id: "default" },
+        update: {
+          logo: data.logo,
+          ...(data.name ? { header: data.name } : {}),
+        },
+        create: {
+          id: "default",
+          logo: data.logo,
+          header: data.name || "BL Dignostic LIMS Reference Laboratory",
+        },
+      });
+    }
+
     res.json({ data: lab });
   } catch (error) {
     next(error);

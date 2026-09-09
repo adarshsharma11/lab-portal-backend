@@ -103,10 +103,6 @@ export const create = async (req: AuthenticatedRequest, res: Response, next: Nex
       res.status(400).json({ message: "Pincode is required" });
       return;
     }
-    if (!data.bloodGroup || typeof data.bloodGroup !== "string" || !data.bloodGroup.trim()) {
-      res.status(400).json({ message: "Blood group is required" });
-      return;
-    }
 
     const patientCode = data.patientCode && data.patientCode !== "PT-" && data.patientCode.trim()
       ? data.patientCode.trim()
