@@ -160,22 +160,31 @@ export const create = async (req: AuthenticatedRequest, res: Response, next: Nex
     }
 
     let franchiseId: string | null = null;
+    const isTargetAdmin = role === "Admin" || role === "Administrator";
+
     if (isFranchise) {
+      if (isTargetAdmin) {
+        res.status(403).json({ message: "Only administrators can create Admin accounts." });
+        return;
+      }
       if (!userFranchiseId) {
         res.status(403).json({ message: "User is not assigned to any franchise." });
         return;
       }
       franchiseId = userFranchiseId;
     } else {
-      // If Admin is creating a user/staff account (other than a global Admin), franchise selection is required
-      if (role !== "Admin" && role !== "Administrator") {
+      // If creating an Admin account, franchise is optional (global system access)
+      if (isTargetAdmin) {
+        franchiseId = data.franchiseId && typeof data.franchiseId === "string" && data.franchiseId.trim()
+          ? data.franchiseId.trim()
+          : null;
+      } else {
+        // Staff/technician/doctor creation requires franchise selection
         if (!data.franchiseId || typeof data.franchiseId !== "string" || !data.franchiseId.trim()) {
           res.status(400).json({ message: "Franchise selection is required for this staff member." });
           return;
         }
         franchiseId = data.franchiseId.trim();
-      } else {
-        franchiseId = data.franchiseId && typeof data.franchiseId === "string" && data.franchiseId.trim() ? data.franchiseId.trim() : null;
       }
     }
 
@@ -186,7 +195,7 @@ export const create = async (req: AuthenticatedRequest, res: Response, next: Nex
         passwordHash,
         role,
         initials,
-        active: data.status !== "Inactive",
+        active: data.status !== undefined ? data.status !== "Inactive" : (data.active !== undefined ? Boolean(data.active) : true),
         permissions,
         mobile: data.mobile || data.phone || null,
         dateOfBirth: data.dateOfBirth || null,

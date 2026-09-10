@@ -116,13 +116,14 @@ export const requireRoles = (...allowedRoles: string[]) => {
 
 /**
  * Returns tenant scope for querying and mutating resources.
- * - If user is not an Admin (Franchise, Technician, Doctor, Pathologist, Billing, Staff, etc.),
+ * - If user is authenticated and not an Admin (Franchise, Technician, Doctor, Pathologist, Billing, Staff, etc.),
  *   `isFranchise` is true and `franchiseId` is strictly locked to `req.user.franchiseId`.
- * - If user is an Admin, `isAdmin` is true and `franchiseId` can be optionally filtered via `req.query.franchiseId`.
+ * - If user is an Admin or unauthenticated API request, `isAdmin` reflects admin status, and query parameter or payload controls franchise selection.
  */
 export const getTenantScope = (req: AuthenticatedRequest) => {
+  const isAuthenticated = !!req.user;
   const isAdmin = req.user?.role === "Admin" || req.user?.role === "Administrator";
-  const isFranchise = !isAdmin;
+  const isFranchise = isAuthenticated && !isAdmin;
   const userFranchiseId = req.user?.franchiseId ?? null;
 
   let queryFranchiseId: string | null = null;
@@ -137,6 +138,7 @@ export const getTenantScope = (req: AuthenticatedRequest) => {
     : queryFranchiseId;
 
   return {
+    isAuthenticated,
     isFranchise,
     isAdmin,
     userFranchiseId,
