@@ -42,7 +42,7 @@ export const register = async (req: Request, res: Response, next: NextFunction):
 
     let permissions: string[] = ["patients:read"];
     if (data.role === "Technician") {
-      permissions = ["patients:read", "patients:write", "samples:write", "results:write"];
+      permissions = ["patients:read", "patients:write", "billing:read", "billing:write", "reports:read", "reports:write", "results:read", "results:write", /* "samples:write", "samples:read" */];
     } else if (data.role === "Pathologist") {
       permissions = ["patients:read", "results:read", "reports:read", "reports:approve", "qc:manage"];
     } else if (data.role === "Doctor") {

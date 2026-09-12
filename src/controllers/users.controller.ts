@@ -11,7 +11,7 @@ const getDefaultPermissionsForRole = (role: string): string[] => {
     case "Pathologist":
       return ["reports:approve", "results:write", "qc:manage", "patients:read", "samples:read"];
     case "Technician":
-      return ["samples:write", "results:write", "instruments:manage", "patients:read", "qc:read"];
+      return ["patients:read", "patients:write", "billing:read", "billing:write", "reports:read", "reports:write", "results:read", "results:write", /* "samples:write", "samples:read", */ "instruments:manage", "qc:read"];
     case "Doctor":
       return ["patients:read", "reports:read", "appointments:read", "billing:read"];
     case "Receptionist":
