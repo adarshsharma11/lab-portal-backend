@@ -6,7 +6,9 @@ export const testMastersController = {
     try {
       const search = (req.query.search || req.query.q || "") as string;
       const department = req.query.department as string | undefined;
-      const limit = Math.min(Math.max(parseInt(req.query.limit as string) || 50, 1), 500);
+      const limitParam = req.query.limit ? parseInt(req.query.limit as string) : undefined;
+      // Default to 2500 if limit not specified (to load all test master records without truncating), allow up to 5000
+      const limit = limitParam !== undefined ? Math.min(Math.max(limitParam, 1), 5000) : 2500;
       const page = Math.max(parseInt(req.query.page as string) || 1, 1);
       const skip = (page - 1) * limit;
 

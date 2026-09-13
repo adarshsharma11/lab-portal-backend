@@ -87,10 +87,6 @@ export const create = async (req: AuthenticatedRequest, res: Response, next: Nex
       res.status(400).json({ message: "Doctor name is required" });
       return;
     }
-    if (!data.phone || typeof data.phone !== "string" || !data.phone.trim()) {
-      res.status(400).json({ message: "Doctor phone number is required" });
-      return;
-    }
 
     let franchiseId: string;
     if (isFranchise) {
@@ -111,8 +107,8 @@ export const create = async (req: AuthenticatedRequest, res: Response, next: Nex
       data: {
         name: data.name.trim(),
         specialty: data.specialty || "General Medicine",
-        phone: data.phone || "",
-        email: data.email ? data.email.toLowerCase().trim() : null,
+        phone: data.phone && typeof data.phone === "string" ? data.phone.trim() : "",
+        email: data.email && typeof data.email === "string" && data.email.trim() ? data.email.toLowerCase().trim() : null,
         city: data.city || null,
         gender: data.gender || null,
         experience: data.experience || null,
