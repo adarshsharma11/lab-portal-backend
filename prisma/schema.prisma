@@ -582,3 +582,20 @@ model TestMaster {
   @@index([department])
 }
 
+model TestSubParameter {
+  id             String   @id @default(uuid())
+  department     String   // e.g. Hematology, Bio Chemistry
+  mainParameter  String   // e.g. CBC, LFT, KFT, LIPID PROFILE
+  subParameter   String   // e.g. Hb, TLC, Bilirubin-total, etc.
+  unit           String?
+  referenceRange String?
+  defaultValue   String?
+  orderIndex     Int      @default(0)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@map("test_sub_parameters")
+  @@index([mainParameter])
+  @@index([department])
+}
+

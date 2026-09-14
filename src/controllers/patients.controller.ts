@@ -86,6 +86,37 @@ export const getById = async (req: AuthenticatedRequest, res: Response, next: Ne
   }
 };
 
+export const getNextCode = async (_req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    const nextCode = await getNextPatientCode();
+    res.json({ data: { nextCode } });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export async function getNextPatientCode(): Promise<string> {
+  const patients = await prisma.patient.findMany({
+    select: { patientCode: true },
+  });
+
+  let maxNum = 0;
+  for (const p of patients) {
+    const code = (p.patientCode || "").trim();
+    const match = code.match(/^BL-(\d+)$/i);
+    if (match) {
+      const num = parseInt(match[1], 10);
+      if (!isNaN(num) && num > maxNum) {
+        maxNum = num;
+      }
+    }
+  }
+
+  const nextNum = maxNum + 1;
+  const formatted = nextNum < 10 ? `0${nextNum}` : String(nextNum);
+  return `BL-${formatted}`;
+}
+
 export const create = async (req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> => {
   try {
     const data = req.body;
@@ -104,9 +135,10 @@ export const create = async (req: AuthenticatedRequest, res: Response, next: Nex
       return;
     }
 
-    const patientCode = data.patientCode && data.patientCode !== "PT-" && data.patientCode.trim()
-      ? data.patientCode.trim()
-      : `PT-${Math.floor(10000 + Math.random() * 90000)}`;
+    let patientCode = data.patientCode && typeof data.patientCode === "string" ? data.patientCode.trim() : "";
+    if (!patientCode || patientCode === "PT-" || patientCode === "BL-" || patientCode.startsWith("PT-")) {
+      patientCode = await getNextPatientCode();
+    }
 
     // Franchise Assignment: Mandatory for Admin, locked for non-Admin
     let franchiseId: string;
@@ -139,6 +171,15 @@ export const create = async (req: AuthenticatedRequest, res: Response, next: Nex
       }
     }
 
+    // Handle custom registration date if provided
+    let createdAtDate: Date | undefined = undefined;
+    if (data.registrationDate && typeof data.registrationDate === "string" && data.registrationDate.trim()) {
+      const parsedDate = new Date(data.registrationDate.trim());
+      if (!isNaN(parsedDate.getTime())) {
+        createdAtDate = parsedDate;
+      }
+    }
+
     const created = await prisma.patient.create({
       data: {
         patientCode,
@@ -157,6 +198,7 @@ export const create = async (req: AuthenticatedRequest, res: Response, next: Nex
         franchiseId,
         status: data.status || "Active",
         dateOfBirth: data.dateOfBirth || null,
+        ...(createdAtDate ? { createdAt: createdAtDate } : {}),
       },
       include: {
         referringDoctor: true,

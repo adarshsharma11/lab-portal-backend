@@ -5,6 +5,7 @@ import { optionalAuth } from "../middleware/auth.middleware";
 const router = Router();
 
 router.get("/", optionalAuth, PatientsController.list);
+router.get("/next-code", optionalAuth, PatientsController.getNextCode);
 router.get("/:id", optionalAuth, PatientsController.getById);
 router.post("/", optionalAuth, PatientsController.create);
 router.put("/:id", optionalAuth, PatientsController.update);

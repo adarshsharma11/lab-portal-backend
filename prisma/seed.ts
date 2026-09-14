@@ -2,6 +2,7 @@ import { PrismaClient } from "@prisma/client";
 import bcrypt from "bcryptjs";
 import process from "node:process";
 import { seedTestMasters } from "./seed_test_masters";
+import { seedTestSubParameters } from "./seed-sub-parameters";
 
 const prisma = new PrismaClient();
 
@@ -625,6 +626,9 @@ async function main() {
 
   // 15. Seed Test Master Catalog
   await seedTestMasters();
+
+  // 16. Seed Test Sub-Parameters (Department -> Main Parameter -> Sub-Parameters)
+  await seedTestSubParameters(prisma);
 
   console.log("Database seeded successfully!");
 }

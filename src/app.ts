@@ -25,6 +25,7 @@ import settingsRoutes from "./routes/settings.routes";
 import profileRoutes from "./routes/profile.routes";
 import franchisesRoutes from "./routes/franchises.routes";
 import testMastersRoutes from "./routes/test-masters.routes";
+import testSubParametersRoutes from "./routes/test-sub-parameters.routes";
 
 export const createApp = (): Express => {
   const app = express();
@@ -81,6 +82,7 @@ export const createApp = (): Express => {
   app.use("/api/profile", profileRoutes);
   app.use("/api/franchises", franchisesRoutes);
   app.use("/api/test-masters", testMastersRoutes);
+  app.use("/api/test-sub-parameters", testSubParametersRoutes);
 
   // 404 & Error handlers
   app.use(notFoundHandler);

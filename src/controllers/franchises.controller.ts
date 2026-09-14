@@ -219,29 +219,6 @@ export const update = async (req: Request, res: Response, next: NextFunction): P
     const email = data.email ? data.email.toLowerCase().trim() : currentFranchise.email;
     const code = data.code ? data.code.toUpperCase().trim() : currentFranchise.code;
 
-    // Check code uniqueness
-    if (code !== currentFranchise.code) {
-      const conflictCode = await prisma.franchise.findUnique({ where: { code } });
-      if (conflictCode && conflictCode.id !== id) {
-        res.status(409).json({ message: "A franchise with this code already exists." });
-        return;
-      }
-    }
-
-    // Check email uniqueness
-    if (email !== currentFranchise.email) {
-      const conflictFranchise = await prisma.franchise.findUnique({ where: { email } });
-      if (conflictFranchise && conflictFranchise.id !== id) {
-        res.status(409).json({ message: "A record with this email already exists." });
-        return;
-      }
-      const conflictUser = await prisma.user.findUnique({ where: { email } });
-      if (conflictUser && conflictUser.franchiseId !== id) {
-        res.status(409).json({ message: "A user account with this email already exists." });
-        return;
-      }
-    }
-
     const updated = await prisma.franchise.update({
       where: { id },
       data: {
@@ -270,49 +247,63 @@ export const update = async (req: Request, res: Response, next: NextFunction): P
       passwordHash = await hashPassword(data.password.trim());
     }
 
-    const linkedUser = await prisma.user.findFirst({
-      where: {
-        OR: [{ franchiseId: id }, { email: currentFranchise.email }],
-      },
-    });
+    try {
+      const linkedUser = await prisma.user.findFirst({
+        where: {
+          OR: [{ franchiseId: id }, { email: updated.email }, { email: currentFranchise.email }],
+        },
+      });
 
-    if (linkedUser) {
-      await prisma.user.update({
-        where: { id: linkedUser.id },
-        data: {
-          name: updated.ownerName,
-          email: updated.email,
-          mobile: updated.phone,
-          location: `${updated.name} (${updated.city})`,
-          active: updated.status === "Active",
-          passwordHash: passwordHash || undefined,
-          franchiseId: updated.id,
-        },
-      });
-    } else if (passwordHash) {
-      // Create user if missing
-      await prisma.user.create({
-        data: {
-          name: updated.ownerName,
-          email: updated.email,
-          passwordHash,
-          role: "Franchise",
-          active: updated.status === "Active",
-          mobile: updated.phone,
-          location: `${updated.name} (${updated.city})`,
-          franchiseId: updated.id,
-          permissions: [
-            "patients:read",
-            "patients:write",
-            "samples:read",
-            "samples:write",
-            "reports:read",
-            "billing:read",
-            "billing:write",
-            "inventory:read",
-          ],
-        },
-      });
+      if (linkedUser) {
+        let canUpdateEmail = true;
+        if (updated.email !== linkedUser.email) {
+          const conflictUser = await prisma.user.findUnique({ where: { email: updated.email } });
+          if (conflictUser && conflictUser.id !== linkedUser.id) {
+            canUpdateEmail = false;
+          }
+        }
+
+        await prisma.user.update({
+          where: { id: linkedUser.id },
+          data: {
+            name: updated.ownerName || updated.name,
+            ...(canUpdateEmail ? { email: updated.email } : {}),
+            mobile: updated.phone,
+            location: `${updated.name} (${updated.city})`,
+            active: updated.status === "Active",
+            passwordHash: passwordHash || undefined,
+            franchiseId: updated.id,
+          },
+        });
+      } else if (passwordHash) {
+        const conflictUser = await prisma.user.findUnique({ where: { email: updated.email } });
+        if (!conflictUser) {
+          await prisma.user.create({
+            data: {
+              name: updated.ownerName || updated.name,
+              email: updated.email,
+              passwordHash,
+              role: "Franchise",
+              active: updated.status === "Active",
+              mobile: updated.phone,
+              location: `${updated.name} (${updated.city})`,
+              franchiseId: updated.id,
+              permissions: [
+                "patients:read",
+                "patients:write",
+                "samples:read",
+                "samples:write",
+                "reports:read",
+                "billing:read",
+                "billing:write",
+                "inventory:read",
+              ],
+            },
+          });
+        }
+      }
+    } catch (syncErr) {
+      console.warn("Non-fatal: linked user update skipped on franchise edit:", syncErr);
     }
 
     res.json({ data: updated });
