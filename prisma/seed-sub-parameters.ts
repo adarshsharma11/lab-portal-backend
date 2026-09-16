@@ -15,6 +15,7 @@ export const TEST_SUB_PARAMETERS_DATA = [
   { department: "Hematology", mainParameter: "CBC", subParameter: "MCH", unit: "pg", referenceRange: "27.0 - 32.0", defaultValue: "29.5", orderIndex: 11 },
   { department: "Hematology", mainParameter: "CBC", subParameter: "MCHC", unit: "g/dL", referenceRange: "31.5 - 34.5", defaultValue: "33.2", orderIndex: 12 },
   { department: "Hematology", mainParameter: "CBC", subParameter: "MCV", unit: "fL", referenceRange: "83.0 - 101.0", defaultValue: "88.0", orderIndex: 13 },
+  { department: "Hematology", mainParameter: "CBC", subParameter: "Platelet", unit: "10^3/µL", referenceRange: "150 - 410", defaultValue: "245", orderIndex: 14 },
 
   // 2. Bio Chemistry - LFT
   { department: "Bio Chemistry", mainParameter: "LFT", subParameter: "Bilirubin-total", unit: "mg/dL", referenceRange: "0.3 - 1.2", defaultValue: "0.75", orderIndex: 1 },

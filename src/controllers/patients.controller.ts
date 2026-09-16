@@ -135,6 +135,28 @@ export const create = async (req: AuthenticatedRequest, res: Response, next: Nex
       return;
     }
 
+    const cleanPhone = data.phone.trim();
+    // 1. Unique Phone Number Database Validation
+    const existingByPhone = await prisma.patient.findFirst({
+      where: { phone: cleanPhone },
+    });
+    if (existingByPhone) {
+      res.status(409).json({ message: "This Phone Number already exists." });
+      return;
+    }
+
+    // Optional email uniqueness check if provided
+    if (data.email && typeof data.email === "string" && data.email.trim()) {
+      const cleanEmail = data.email.trim();
+      const existingByEmail = await prisma.patient.findFirst({
+        where: { email: { equals: cleanEmail, mode: "insensitive" } },
+      });
+      if (existingByEmail) {
+        res.status(409).json({ message: "A patient with this email address already exists." });
+        return;
+      }
+    }
+
     let patientCode = data.patientCode && typeof data.patientCode === "string" ? data.patientCode.trim() : "";
     if (!patientCode || patientCode === "PT-" || patientCode === "BL-" || patientCode.startsWith("PT-")) {
       patientCode = await getNextPatientCode();
@@ -156,17 +178,42 @@ export const create = async (req: AuthenticatedRequest, res: Response, next: Nex
       franchiseId = data.franchiseId.trim();
     }
 
+    // 2. Referring Doctor / Business Referral Source Resolution
     let referringDoctorId: string | null = null;
     if (data.referringDoctorId && typeof data.referringDoctorId === "string" && data.referringDoctorId.trim()) {
-      const doc = await prisma.doctor.findFirst({
+      const refString = data.referringDoctorId.trim();
+      const strippedName = refString.replace(/^Doctor\s*–\s*/i, "").trim();
+      
+      let doc = await prisma.doctor.findFirst({
         where: {
           OR: [
-            { id: data.referringDoctorId.trim() },
-            { name: { contains: data.referringDoctorId.trim(), mode: "insensitive" } },
+            { id: refString },
+            { name: { equals: refString, mode: "insensitive" } },
+            { name: { equals: strippedName, mode: "insensitive" } },
+            { name: { contains: strippedName, mode: "insensitive" } },
           ],
         },
       });
+
       if (doc) {
+        referringDoctorId = doc.id;
+      } else if (refString !== "None" && refString !== "null" && refString !== "") {
+        // Auto-create referral entity so foreign key constraint is satisfied and relation is preserved
+        const cleanName = strippedName;
+        doc = await prisma.doctor.create({
+          data: {
+            name: cleanName,
+            specialty: cleanName.toLowerCase().includes("collection") 
+              ? "Collection Centre" 
+              : cleanName.toLowerCase().includes("camp") 
+              ? "Health Camp" 
+              : cleanName.toLowerCase().includes("direct") || cleanName.toLowerCase().includes("walk-in") 
+              ? "Self Referral" 
+              : "Referral Source",
+            phone: "N/A",
+            franchiseId: franchiseId || null,
+          },
+        });
         referringDoctorId = doc.id;
       }
     }
@@ -186,7 +233,7 @@ export const create = async (req: AuthenticatedRequest, res: Response, next: Nex
         name: data.name.trim(),
         age: Number(data.age) || 30,
         sex: data.sex || "Female",
-        phone: data.phone.trim(),
+        phone: cleanPhone,
         email: data.email ? data.email.trim() : null,
         city: data.city || null,
         state: data.state || null,
@@ -240,20 +287,77 @@ export const update = async (req: AuthenticatedRequest, res: Response, next: Nex
       return;
     }
 
+    // Unique Phone Check on Update
+    if (data.phone && typeof data.phone === "string" && data.phone.trim()) {
+      const cleanPhone = data.phone.trim();
+      const existingByPhone = await prisma.patient.findFirst({
+        where: {
+          phone: cleanPhone,
+          id: { not: id },
+        },
+      });
+      if (existingByPhone) {
+        res.status(409).json({ message: "This Phone Number already exists." });
+        return;
+      }
+    }
+
+    // Unique Email Check on Update
+    if (data.email && typeof data.email === "string" && data.email.trim()) {
+      const cleanEmail = data.email.trim();
+      const existingByEmail = await prisma.patient.findFirst({
+        where: {
+          email: { equals: cleanEmail, mode: "insensitive" },
+          id: { not: id },
+        },
+      });
+      if (existingByEmail) {
+        res.status(409).json({ message: "A patient with this email address already exists." });
+        return;
+      }
+    }
+
     let referringDoctorIdUpdate: string | null | undefined = undefined;
     if (data.referringDoctorId !== undefined) {
       if (!data.referringDoctorId || (typeof data.referringDoctorId === "string" && !data.referringDoctorId.trim())) {
         referringDoctorIdUpdate = null;
       } else {
-        const doc = await prisma.doctor.findFirst({
+        const refString = String(data.referringDoctorId).trim();
+        const strippedName = refString.replace(/^Doctor\s*–\s*/i, "").trim();
+
+        let doc = await prisma.doctor.findFirst({
           where: {
             OR: [
-              { id: String(data.referringDoctorId).trim() },
-              { name: { contains: String(data.referringDoctorId).trim(), mode: "insensitive" } },
+              { id: refString },
+              { name: { equals: refString, mode: "insensitive" } },
+              { name: { equals: strippedName, mode: "insensitive" } },
+              { name: { contains: strippedName, mode: "insensitive" } },
             ],
           },
         });
-        referringDoctorIdUpdate = doc ? doc.id : null;
+
+        if (doc) {
+          referringDoctorIdUpdate = doc.id;
+        } else if (refString !== "None" && refString !== "null" && refString !== "") {
+          const cleanName = strippedName;
+          doc = await prisma.doctor.create({
+            data: {
+              name: cleanName,
+              specialty: cleanName.toLowerCase().includes("collection") 
+                ? "Collection Centre" 
+                : cleanName.toLowerCase().includes("camp") 
+                ? "Health Camp" 
+                : cleanName.toLowerCase().includes("direct") || cleanName.toLowerCase().includes("walk-in") 
+                ? "Self Referral" 
+                : "Referral Source",
+              phone: "N/A",
+              franchiseId: existing.franchiseId || null,
+            },
+          });
+          referringDoctorIdUpdate = doc.id;
+        } else {
+          referringDoctorIdUpdate = null;
+        }
       }
     }
 
