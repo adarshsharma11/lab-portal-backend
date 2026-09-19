@@ -30,12 +30,52 @@ async function main() {
   await prisma.doctor.deleteMany({});
   await prisma.supplier.deleteMany({});
   await prisma.user.deleteMany({});
+  await prisma.franchise.deleteMany({});
   await prisma.laboratorySetting.deleteMany({});
   await prisma.reportSetting.deleteMany({});
   await prisma.referenceRange.deleteMany({});
   await prisma.unitDefinition.deleteMany({});
   await prisma.notificationSetting.deleteMany({});
   await prisma.systemPreference.deleteMany({});
+
+  // 0. Franchises (Varanasi & Aligarh)
+  const franchiseVaranasi = await prisma.franchise.create({
+    data: {
+      id: "fr-varanasi",
+      code: "VAR-01",
+      name: "Varanasi",
+      ownerName: "Dr. Namrata",
+      email: "varanasi@botlif.com",
+      phone: "+91-8318855995",
+      emergencyPhone: "+91-7011355399",
+      address: "Vrindavan Road, Chunar Road Amra Chauraha, Near Indian Petrol Pump, Varanasi",
+      city: "Varanasi",
+      state: "Uttar Pradesh",
+      country: "India",
+      pincode: "221106",
+      status: "Active",
+      revenueShare: 0,
+    },
+  });
+
+  const franchiseAligarh = await prisma.franchise.create({
+    data: {
+      id: "fr-aligarh",
+      code: "ALG-02",
+      name: "Aligarh",
+      ownerName: "Dr Vishakha Sharma",
+      email: "akshataligarh@botlif.com",
+      phone: "+91 8923903866",
+      emergencyPhone: "9548895297",
+      address: "18/205,Sarai Khimi , Agra Road , Aligarh UP",
+      city: "Aligarh",
+      state: "Uttar Pradesh",
+      country: "India",
+      pincode: "283126",
+      status: "Active",
+      revenueShare: 0,
+    },
+  });
 
   // 1. Users
   const passwordHash = await bcrypt.hash("Admin@123", 10);
@@ -162,6 +202,7 @@ async function main() {
       emergencyContact: "+91 98765 20300",
       bloodGroup: "B+",
       referringDoctorId: doctor1.id,
+      franchiseId: franchiseVaranasi.id,
       status: "Active",
       dateOfBirth: "1990-04-12",
       createdAt: new Date("2026-08-22T08:00:00Z"),
@@ -184,9 +225,32 @@ async function main() {
       emergencyContact: "+91 98765 20301",
       bloodGroup: "O+",
       referringDoctorId: doctor1.id,
+      franchiseId: franchiseVaranasi.id,
       status: "Active",
       dateOfBirth: "1974-10-03",
       createdAt: new Date("2026-08-22T08:30:00Z"),
+    },
+  });
+
+  const patientAligarh = await prisma.patient.create({
+    data: {
+      id: "pat-alg-01",
+      patientCode: "ALG-PT-001",
+      name: "Ramesh Sharma",
+      age: 42,
+      sex: "Male",
+      phone: "+91 89239 03866",
+      email: "ramesh.sharma@aligarh.local",
+      city: "Aligarh",
+      state: "Uttar Pradesh",
+      pincode: "283126",
+      address: "Sarai Khimi, Agra Road",
+      emergencyContact: "9548895297",
+      bloodGroup: "A+",
+      franchiseId: franchiseAligarh.id,
+      status: "Active",
+      dateOfBirth: "1984-06-15",
+      createdAt: new Date("2026-09-18T08:40:00Z"),
     },
   });
 
@@ -319,6 +383,7 @@ async function main() {
       patientId: patient1.id,
       sampleId: sample1.id,
       doctorId: doctor1.id,
+      franchiseId: franchiseVaranasi.id,
       testIds: [test1.id, test2.id],
       resultIds: [result1.id, result2.id],
       department: "Hematology",
@@ -327,6 +392,78 @@ async function main() {
       pathologist: "Dr. Ananya Rao",
       comments: "Clinical correlation recommended for serum potassium level.",
       createdAt: new Date("2026-08-22T10:25:00Z"),
+    },
+  });
+
+  // Aligarh sample & test & report
+  const sampleAligarh = await prisma.sample.create({
+    data: {
+      id: "smp-alg-01",
+      accession: "ALG-260918-001",
+      barcode: "ALG260918001",
+      patientId: patientAligarh.id,
+      franchiseId: franchiseAligarh.id,
+      sampleType: "Whole Blood EDTA",
+      collectedAt: new Date("2026-09-18T09:00:00Z"),
+      priority: "Routine",
+      status: "Completed",
+    },
+  });
+
+  const testAligarh = await prisma.test.create({
+    data: {
+      id: "tst-alg-01",
+      code: "CBC",
+      name: "COMPLETE BLOOD COUNT (CBC / HEMOGRAM)",
+      department: "Hematology",
+      sampleId: sampleAligarh.id,
+      franchiseId: franchiseAligarh.id,
+      sampleType: "Whole Blood EDTA",
+      price: 350,
+      status: "Active",
+    },
+  });
+
+  const resAlg1 = await prisma.result.create({
+    data: {
+      id: "res-alg-01",
+      testId: testAligarh.id,
+      parameter: "Haemoglobin (HB)",
+      value: "14.2",
+      unit: "g/dL",
+      referenceRange: "13.0 - 17.0",
+      abnormalFlag: false,
+    },
+  });
+
+  const resAlg2 = await prisma.result.create({
+    data: {
+      id: "res-alg-02",
+      testId: testAligarh.id,
+      parameter: "Platelet Count (PLT)",
+      value: "245",
+      unit: "10^3/µL",
+      referenceRange: "150 - 410",
+      abnormalFlag: false,
+    },
+  });
+
+  await prisma.report.create({
+    data: {
+      id: "rpt-alg-01",
+      reportNumber: "RPT-ALG-61128",
+      patientId: patientAligarh.id,
+      sampleId: sampleAligarh.id,
+      doctorId: doctor1.id,
+      franchiseId: franchiseAligarh.id,
+      testIds: [testAligarh.id],
+      resultIds: [resAlg1.id, resAlg2.id],
+      department: "Hematology",
+      priority: "Routine",
+      status: "Approved",
+      pathologist: "DR. BATRA VARSHNEY",
+      comments: "Normal hematology profile. Red cells normocytic normochromic.",
+      createdAt: new Date("2026-09-18T10:00:00Z"),
     },
   });
 

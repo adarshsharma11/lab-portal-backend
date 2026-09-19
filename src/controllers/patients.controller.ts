@@ -86,33 +86,70 @@ export const getById = async (req: AuthenticatedRequest, res: Response, next: Ne
   }
 };
 
-export const getNextCode = async (_req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> => {
+export const getNextCode = async (req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> => {
   try {
-    const nextCode = await getNextPatientCode();
+    const { isFranchise, userFranchiseId } = getTenantScope(req);
+    const targetFranchiseId = isFranchise
+      ? userFranchiseId
+      : (typeof req.query.franchiseId === "string" && req.query.franchiseId.trim() ? req.query.franchiseId.trim() : undefined);
+
+    const nextCode = await getNextPatientCode(targetFranchiseId);
     res.json({ data: { nextCode } });
   } catch (error) {
     next(error);
   }
 };
 
-export async function getNextPatientCode(): Promise<string> {
+/**
+ * Resequences all existing patients for a specific franchise to BL-01, BL-02, BL-03...
+ * based on their creation order (createdAt: asc) without leaving gaps.
+ */
+export async function resequencePatientsForFranchise(franchiseId?: string | null): Promise<void> {
+  if (!franchiseId) return;
+
   const patients = await prisma.patient.findMany({
-    select: { patientCode: true },
+    where: { franchiseId },
+    orderBy: { createdAt: "asc" },
   });
 
-  let maxNum = 0;
-  for (const p of patients) {
-    const code = (p.patientCode || "").trim();
-    const match = code.match(/^BL-(\d+)$/i);
-    if (match) {
-      const num = parseInt(match[1], 10);
-      if (!isNaN(num) && num > maxNum) {
-        maxNum = num;
-      }
-    }
+  if (!patients.length) return;
+
+  // Step 1: Assign temporary codes first to avoid unique constraint collisions during renumbering
+  for (let i = 0; i < patients.length; i++) {
+    await prisma.patient.update({
+      where: { id: patients[i].id },
+      data: { patientCode: `TEMP-${patients[i].id}-${Date.now()}` },
+    });
   }
 
-  const nextNum = maxNum + 1;
+  // Step 2: Assign clean sequential codes BL-01, BL-02, ...
+  for (let i = 0; i < patients.length; i++) {
+    const seq = i + 1;
+    const formatted = seq < 10 ? `0${seq}` : String(seq);
+    await prisma.patient.update({
+      where: { id: patients[i].id },
+      data: { patientCode: `BL-${formatted}` },
+    });
+  }
+}
+
+/**
+ * Calculates the next sequential patient code for a specific franchise based on
+ * the current active records in the database.
+ */
+export async function getNextPatientCode(franchiseId?: string | null): Promise<string> {
+  if (!franchiseId) {
+    const totalCount = await prisma.patient.count();
+    const nextNum = totalCount + 1;
+    const formatted = nextNum < 10 ? `0${nextNum}` : String(nextNum);
+    return `BL-${formatted}`;
+  }
+
+  const count = await prisma.patient.count({
+    where: { franchiseId },
+  });
+
+  const nextNum = count + 1;
   const formatted = nextNum < 10 ? `0${nextNum}` : String(nextNum);
   return `BL-${formatted}`;
 }
@@ -157,11 +194,6 @@ export const create = async (req: AuthenticatedRequest, res: Response, next: Nex
       }
     }
 
-    let patientCode = data.patientCode && typeof data.patientCode === "string" ? data.patientCode.trim() : "";
-    if (!patientCode || patientCode === "PT-" || patientCode === "BL-" || patientCode.startsWith("PT-")) {
-      patientCode = await getNextPatientCode();
-    }
-
     // Franchise Assignment: Mandatory for Admin, locked for non-Admin
     let franchiseId: string;
     if (isFranchise) {
@@ -177,6 +209,9 @@ export const create = async (req: AuthenticatedRequest, res: Response, next: Nex
       }
       franchiseId = data.franchiseId.trim();
     }
+
+    // Always generate franchise-specific sequential patient code based on current active records in database
+    const patientCode = await getNextPatientCode(franchiseId);
 
     // 2. Referring Doctor / Business Referral Source Resolution
     let referringDoctorId: string | null = null;
@@ -386,6 +421,12 @@ export const update = async (req: AuthenticatedRequest, res: Response, next: Nex
       },
     });
 
+    // If franchise was changed, resequence both old and new franchise
+    if (existing.franchiseId !== updated.franchiseId) {
+      if (existing.franchiseId) await resequencePatientsForFranchise(existing.franchiseId);
+      if (updated.franchiseId) await resequencePatientsForFranchise(updated.franchiseId);
+    }
+
     res.json({ data: updated });
   } catch (error) {
     next(error);
@@ -408,7 +449,14 @@ export const remove = async (req: AuthenticatedRequest, res: Response, next: Nex
       return;
     }
 
+    const targetFranchiseId = existing.franchiseId;
     await prisma.patient.delete({ where: { id } });
+
+    // Automatically resequence remaining patients for this franchise without leaving gaps
+    if (targetFranchiseId) {
+      await resequencePatientsForFranchise(targetFranchiseId);
+    }
+
     res.json({ message: "Patient deleted successfully" });
   } catch (error) {
     next(error);

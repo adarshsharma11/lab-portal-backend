@@ -66,7 +66,7 @@ model User {
 
 model Patient {
   id                String         @id @default(uuid())
-  patientCode       String         @unique
+  patientCode       String
   name              String
   age               Int            @default(0)
   sex               String         // Female, Male, Other
@@ -93,6 +93,8 @@ model Patient {
   appointments      Appointment[]
   invoices          Invoice[]
 
+  @@unique([franchiseId, patientCode])
+  @@index([franchiseId])
   @@map("patients")
 }
 

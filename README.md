@@ -100,7 +100,7 @@ npx ts-node -r dotenv/config prisma/seed_test_masters.ts
 
 # 4. Seed the 1,042 Test Master records into the database
 node --require esbuild-register prisma/seed_test_masters.ts
-
+npx tsx prisma/seed-sub-parameters.ts  
 ---
 
 ## 🏃 Running the Server
