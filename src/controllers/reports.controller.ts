@@ -2,6 +2,200 @@ import { Request, Response, NextFunction } from "express";
 import { prisma } from "../lib/prisma";
 import { AuthenticatedRequest, getTenantScope } from "../middleware/auth.middleware";
 
+const roundMoney = (value: unknown): number => Math.round((Number(value) || 0) * 100) / 100;
+
+const testsForReport = (report: any): any[] => {
+  const sampleTests = report.sample?.tests || [];
+  const testIds: string[] = Array.isArray(report.testIds) ? report.testIds : [];
+  if (testIds.length === 0) return sampleTests;
+
+  const keys = new Set(testIds.map((id) => String(id).trim().toLowerCase()).filter(Boolean));
+  const matched = sampleTests.filter((test: any) =>
+    keys.has(String(test.id || "").toLowerCase()) ||
+    keys.has(String(test.code || "").toLowerCase()) ||
+    keys.has(String(test.name || "").toLowerCase())
+  );
+  return matched.length > 0 ? matched : sampleTests;
+};
+
+const invoiceItemMatchesTest = (item: any, test: any): boolean => {
+  const description = String(item?.description || item?.name || item?.testName || "").trim().toLowerCase();
+  if (!description) return false;
+  const code = String(test.code || "").trim().toLowerCase();
+  const name = String(test.name || "").trim().toLowerCase();
+  return Boolean(
+    (code && description === code) ||
+    (name && (description === name || description.includes(name) || name.includes(description)))
+  );
+};
+
+const priceTest = (test: any, master?: any, invoiceItem?: any, allocatedDiscount = 0) => {
+  const mrp = roundMoney(invoiceItem?.mrp ?? master?.mrp ?? test.price ?? 0);
+  const rate = roundMoney(invoiceItem?.rate ?? master?.rate ?? test.price ?? 0);
+  const explicitDiscount = invoiceItem?.discount !== undefined && invoiceItem?.discount !== null
+    ? roundMoney(invoiceItem.discount)
+    : null;
+  const hasExplicitDiscountPrice =
+    invoiceItem?.discountPrice !== undefined ||
+    invoiceItem?.net !== undefined ||
+    invoiceItem?.amount !== undefined;
+  const explicitDiscountPrice = invoiceItem?.discountPrice ?? invoiceItem?.net ?? invoiceItem?.amount;
+
+  let discountPrice = 0;
+  if (hasExplicitDiscountPrice) {
+    discountPrice = roundMoney(explicitDiscountPrice);
+  } else if (Number(test.price) > 0 && (mrp === 0 || roundMoney(test.price) <= mrp)) {
+    discountPrice = roundMoney(test.price);
+  } else if (rate > 0) {
+    discountPrice = rate;
+  } else {
+    discountPrice = mrp;
+  }
+
+  const discount = explicitDiscount !== null
+    ? explicitDiscount
+    : roundMoney(allocatedDiscount || Math.max(0, mrp - discountPrice));
+
+  if (!hasExplicitDiscountPrice && allocatedDiscount > 0) {
+    discountPrice = roundMoney(Math.max(0, mrp - discount));
+  }
+
+  return {
+    id: test.id,
+    code: test.code,
+    name: test.name,
+    department: test.department,
+    sampleType: test.sampleType,
+    status: test.status,
+    unit: test.unit,
+    price: roundMoney(test.price),
+    mrp,
+    rate,
+    discount,
+    discountPrice,
+  };
+};
+
+const attachTestPricing = async (reports: any[]): Promise<any[]> => {
+  if (reports.length === 0) return reports;
+
+  const reportsMissingTests = reports.filter((report) => !(report.sample?.tests && report.sample.tests.length));
+  const missingSampleIds = [
+    ...new Set(reportsMissingTests.map((report) => report.sampleId || report.sample?.id).filter(Boolean)),
+  ];
+  if (missingSampleIds.length > 0) {
+    const extraTests = await prisma.test.findMany({
+      where: { sampleId: { in: missingSampleIds } },
+    });
+    const testsBySample = new Map<string, any[]>();
+    for (const test of extraTests) {
+      if (!test.sampleId) continue;
+      const list = testsBySample.get(test.sampleId) || [];
+      list.push(test);
+      testsBySample.set(test.sampleId, list);
+    }
+    for (const report of reports) {
+      const sampleId = report.sampleId || report.sample?.id;
+      if (!sampleId || (report.sample?.tests && report.sample.tests.length)) continue;
+      if (report.sample) {
+        report.sample.tests = testsBySample.get(sampleId) || [];
+      }
+    }
+  }
+
+  const allTests = reports.flatMap((report) => testsForReport(report));
+  const codes = [...new Set(allTests.map((test) => String(test.code || "").trim()).filter(Boolean))];
+  const names = [...new Set(allTests.map((test) => String(test.name || "").trim()).filter(Boolean))];
+  const patientIds = [...new Set(reports.map((report) => report.patientId).filter(Boolean))];
+
+  const masterWhere: any[] = [];
+  for (const code of codes) {
+    masterWhere.push({ code: { equals: code, mode: "insensitive" } });
+  }
+  for (const name of names) {
+    masterWhere.push({ name: { equals: name, mode: "insensitive" } });
+  }
+
+  const [masters, invoices] = await Promise.all([
+    masterWhere.length > 0
+      ? prisma.testMaster.findMany({
+          where: { OR: masterWhere },
+          select: { code: true, name: true, mrp: true, rate: true },
+        })
+      : Promise.resolve([]),
+    patientIds.length > 0
+      ? prisma.invoice.findMany({
+          where: { patientId: { in: patientIds } },
+          select: { patientId: true, items: true, discount: true, createdAt: true },
+          orderBy: { createdAt: "desc" },
+        })
+      : Promise.resolve([]),
+  ]);
+
+  const masterByCode = new Map<string, any>();
+  const masterByName = new Map<string, any>();
+  for (const master of masters) {
+    if (master.code) masterByCode.set(String(master.code).toLowerCase(), master);
+    if (master.name) masterByName.set(String(master.name).toLowerCase(), master);
+  }
+
+  const invoicesByPatient = new Map<string, any[]>();
+  for (const invoice of invoices) {
+    const list = invoicesByPatient.get(invoice.patientId) || [];
+    list.push(invoice);
+    invoicesByPatient.set(invoice.patientId, list);
+  }
+
+  return reports.map((report) => {
+    const tests = testsForReport(report);
+    const patientInvoices = invoicesByPatient.get(report.patientId) || [];
+
+    const pricedTests = tests.map((test: any) => {
+      const master =
+        masterByCode.get(String(test.code || "").toLowerCase()) ||
+        masterByName.get(String(test.name || "").toLowerCase());
+
+      let matchedItem: any = null;
+      let allocatedDiscount = 0;
+      for (const invoice of patientInvoices) {
+        const items = Array.isArray(invoice.items) ? invoice.items : [];
+        const item = items.find((entry: any) => invoiceItemMatchesTest(entry, test));
+        if (!item) continue;
+        matchedItem = item;
+        const subtotal = items.reduce((sum: number, entry: any) => {
+          const qty = Number(entry.quantity) || 1;
+          return sum + roundMoney(entry.mrp ?? entry.price ?? 0) * qty;
+        }, 0);
+        const itemMrp = roundMoney(item.mrp ?? item.price ?? 0) * (Number(item.quantity) || 1);
+        if (subtotal > 0 && Number(invoice.discount) > 0 && item.discount === undefined) {
+          allocatedDiscount = roundMoney((itemMrp / subtotal) * Number(invoice.discount));
+        }
+        break;
+      }
+
+      const priced = priceTest(test, master, matchedItem, allocatedDiscount);
+      return { ...test, ...priced };
+    });
+
+    const testsTotalMrp = roundMoney(pricedTests.reduce((sum: number, test: any) => sum + (test.mrp || 0), 0));
+    const testsTotalDiscount = roundMoney(pricedTests.reduce((sum: number, test: any) => sum + (test.discount || 0), 0));
+    const testsTotalDiscountPrice = roundMoney(pricedTests.reduce((sum: number, test: any) => sum + (test.discountPrice || 0), 0));
+
+    const sample = report.sample
+      ? { ...report.sample, tests: pricedTests }
+      : report.sample;
+
+    return {
+      ...report,
+      sample,
+      tests: pricedTests,
+      testsTotalMrp,
+      testsTotalDiscount,
+      testsTotalDiscountPrice,
+    };
+  });
+};
+
 export const listReports = async (req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> => {
   try {
     const { isFranchise, userFranchiseId, effectiveFranchiseId } = getTenantScope(req);
@@ -39,12 +233,35 @@ export const listReports = async (req: AuthenticatedRequest, res: Response, next
       include: {
         patient: { select: { id: true, name: true, patientCode: true, age: true, sex: true, phone: true } },
         doctor: { select: { id: true, name: true, specialty: true } },
-        sample: { select: { id: true, accession: true, barcode: true, sampleType: true, collectedAt: true, receivedAt: true, status: true } },
+        sample: {
+          select: {
+            id: true,
+            accession: true,
+            barcode: true,
+            sampleType: true,
+            collectedAt: true,
+            receivedAt: true,
+            status: true,
+            tests: {
+              select: {
+                id: true,
+                code: true,
+                name: true,
+                department: true,
+                sampleType: true,
+                price: true,
+                status: true,
+                unit: true,
+              },
+            },
+          },
+        },
         franchise: { select: { id: true, name: true, code: true, city: true } },
       },
       orderBy: { createdAt: "desc" },
     });
-    res.json({ data: reports });
+    const data = await attachTestPricing(reports);
+    res.json({ data });
   } catch (error) {
     next(error);
   }
@@ -95,7 +312,22 @@ export const getReportById = async (req: AuthenticatedRequest, res: Response, ne
       results = report.sample.tests.flatMap((t) => t.results || []);
     }
 
-    res.json({ data: { ...report, results } });
+    const [priced] = await attachTestPricing([report]);
+    const testsById = new Map<string, any>((priced.tests || []).map((test: any) => [test.id, test]));
+    const pricedResults = results.map((result: any) => {
+      const pricedTest: any = testsById.get(result.testId) || testsById.get(result.test?.id);
+      if (!pricedTest) return result;
+      const testPricing = { ...pricedTest };
+      delete testPricing.results;
+      return {
+        ...result,
+        mrp: testPricing.mrp,
+        discount: testPricing.discount,
+        discountPrice: testPricing.discountPrice,
+        test: result.test ? { ...result.test, ...testPricing } : testPricing,
+      };
+    });
+    res.json({ data: { ...priced, results: pricedResults } });
   } catch (error) {
     next(error);
   }
