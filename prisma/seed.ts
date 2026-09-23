@@ -9,35 +9,6 @@ const prisma = new PrismaClient();
 async function main() {
   console.log("Seeding database...");
 
-  // Clear existing data in reverse order of foreign keys
-  await prisma.auditActivity.deleteMany({});
-  await prisma.qCViolation.deleteMany({});
-  await prisma.qCRun.deleteMany({});
-  await prisma.qCParameter.deleteMany({});
-  await prisma.analyzerIntegrationError.deleteMany({});
-  await prisma.analyzerOrder.deleteMany({});
-  await prisma.analyzerResult.deleteMany({});
-  await prisma.instrument.deleteMany({});
-  await prisma.inventoryItem.deleteMany({});
-  await prisma.invoice.deleteMany({});
-  await prisma.appointment.deleteMany({});
-  await prisma.reportTemplate.deleteMany({});
-  await prisma.result.deleteMany({});
-  await prisma.test.deleteMany({});
-  await prisma.report.deleteMany({});
-  await prisma.sample.deleteMany({});
-  await prisma.patient.deleteMany({});
-  await prisma.doctor.deleteMany({});
-  await prisma.supplier.deleteMany({});
-  await prisma.user.deleteMany({});
-  await prisma.franchise.deleteMany({});
-  await prisma.laboratorySetting.deleteMany({});
-  await prisma.reportSetting.deleteMany({});
-  await prisma.referenceRange.deleteMany({});
-  await prisma.unitDefinition.deleteMany({});
-  await prisma.notificationSetting.deleteMany({});
-  await prisma.systemPreference.deleteMany({});
-
   // 0. Franchises (Varanasi & Aligarh)
   const franchiseVaranasi = await prisma.franchise.create({
     data: {
