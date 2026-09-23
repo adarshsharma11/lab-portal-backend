@@ -101,7 +101,7 @@ model Patient {
 model Doctor {
   id            String         @id @default(uuid())
   name          String
-  specialty     String
+  specialty     String?
   phone         String
   email         String?
   city          String?

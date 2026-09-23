@@ -106,7 +106,7 @@ export const create = async (req: AuthenticatedRequest, res: Response, next: Nex
     const created = await prisma.doctor.create({
       data: {
         name: data.name.trim(),
-        specialty: data.specialty || "General Medicine",
+        specialty: data.specialty && typeof data.specialty === "string" && data.specialty.trim() ? data.specialty.trim() : null,
         phone: data.phone && typeof data.phone === "string" ? data.phone.trim() : "",
         email: data.email && typeof data.email === "string" && data.email.trim() ? data.email.toLowerCase().trim() : null,
         city: data.city || null,
@@ -192,9 +192,9 @@ export const update = async (req: AuthenticatedRequest, res: Response, next: Nex
     const updated = await prisma.doctor.update({
       where: { id },
       data: {
-        name: data.name,
-        specialty: data.specialty,
-        phone: data.phone,
+        name: data.name ? data.name.trim() : undefined,
+        specialty: data.specialty !== undefined ? (data.specialty && typeof data.specialty === "string" && data.specialty.trim() ? data.specialty.trim() : null) : undefined,
+        phone: data.phone !== undefined ? data.phone : undefined,
         email: data.email ? data.email.toLowerCase().trim() : undefined,
         city: data.city,
         gender: data.gender,

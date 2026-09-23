@@ -85,6 +85,7 @@ Syncs your Prisma schema (`prisma/schema.prisma`) directly with your PostgreSQL 
 ```bash
 npx prisma db push
 ```
+or npx prisma db push --accept-data-loss
 
 #### C. Seed Database
 Populates the database with initial configurations, test catalogs, instruments, reference ranges, and default role accounts (including the primary Administrator account):
