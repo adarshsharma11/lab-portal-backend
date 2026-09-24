@@ -1159,7 +1159,19 @@ function parseTests(): ParsedMasterTest[] {
     }
   }
 
-  return results;
+  const standardPanels = [
+    { itemId: "PANEL001", code: "CBC", name: "Complete Blood Count (CBC / Hemogram)", department: "Hematology", rate: 300, mrp: 450, sampleType: "Whole Blood EDTA" },
+    { itemId: "PANEL002", code: "LFT", name: "Liver Function Test (LFT)", department: "Bio Chemistry", rate: 450, mrp: 700, sampleType: "Serum" },
+    { itemId: "PANEL003", code: "KFT", name: "Kidney Function Test (KFT / Renal Profile)", department: "Bio Chemistry", rate: 450, mrp: 650, sampleType: "Serum" },
+    { itemId: "PANEL004", code: "RFT", name: "Renal Function Test (RFT)", department: "Bio Chemistry", rate: 450, mrp: 650, sampleType: "Serum" },
+    { itemId: "PANEL005", code: "LIPID", name: "Lipid Profile Advance", department: "Bio Chemistry", rate: 400, mrp: 650, sampleType: "Serum" },
+    { itemId: "PANEL006", code: "THYROID", name: "Thyroid Profile (Total T3, T4 & TSH)", department: "Bio Chemistry", rate: 380, mrp: 600, sampleType: "Serum" },
+    { itemId: "PANEL007", code: "WIDAL", name: "WIDAL (SLIDE AGGLUTINATION)", department: "Serology", rate: 200, mrp: 350, sampleType: "Serum" },
+    { itemId: "PANEL008", code: "URINE", name: "Urine Routine & Microscopic Examination", department: "Clinical Pathology", rate: 150, mrp: 250, sampleType: "Clean Catch Urine" },
+    { itemId: "PANEL009", code: "HBA1C", name: "HbA1c (Glycosylated Hemoglobin)", department: "Bio Chemistry", rate: 300, mrp: 500, sampleType: "Whole Blood EDTA" },
+  ];
+
+  return [...standardPanels, ...results];
 }
 
 export async function seedTestMasters() {

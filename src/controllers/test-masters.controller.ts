@@ -1,9 +1,11 @@
 import { Request, Response } from "express";
 import { prisma } from "../lib/prisma";
+import { AuthenticatedRequest, getTenantScope } from "../middleware/auth.middleware";
 
 export const testMastersController = {
   async list(req: Request, res: Response): Promise<void> {
     try {
+      const { effectiveFranchiseId } = getTenantScope(req as AuthenticatedRequest);
       const search = (req.query.search || req.query.q || "") as string;
       const department = req.query.department as string | undefined;
       const limitParam = req.query.limit ? parseInt(req.query.limit as string) : undefined;
@@ -12,21 +14,44 @@ export const testMastersController = {
       const page = Math.max(parseInt(req.query.page as string) || 1, 1);
       const skip = (page - 1) * limit;
 
-      const where: any = {};
+      const andConditions: any[] = [];
+
+      // Franchise Scoping:
+      // If a franchise is active, only show global tests (franchiseId: null) AND tests assigned to that franchise.
+      // Tests assigned exclusively to other franchises are never exposed.
+      if (effectiveFranchiseId && effectiveFranchiseId !== "__NO_FRANCHISE_ACCESS__" && effectiveFranchiseId !== "all") {
+        andConditions.push({
+          OR: [
+            { franchiseId: null },
+            { franchiseId: effectiveFranchiseId },
+          ],
+        });
+      } else {
+        // Global view: show all base/shared tests
+        andConditions.push({
+          franchiseId: null,
+        });
+      }
 
       if (department) {
-        where.department = { equals: department, mode: "insensitive" };
+        andConditions.push({
+          department: { equals: department, mode: "insensitive" },
+        });
       }
 
       if (search.trim()) {
         const query = search.trim();
-        where.OR = [
-          { name: { contains: query, mode: "insensitive" } },
-          { code: { contains: query, mode: "insensitive" } },
-          { itemId: { contains: query, mode: "insensitive" } },
-          { department: { contains: query, mode: "insensitive" } },
-        ];
+        andConditions.push({
+          OR: [
+            { name: { contains: query, mode: "insensitive" } },
+            { code: { contains: query, mode: "insensitive" } },
+            { itemId: { contains: query, mode: "insensitive" } },
+            { department: { contains: query, mode: "insensitive" } },
+          ],
+        });
       }
+
+      const where: any = andConditions.length > 0 ? { AND: andConditions } : {};
 
       const [testMasters, total] = await Promise.all([
         prisma.testMaster.findMany({
@@ -77,7 +102,7 @@ export const testMastersController = {
 
   async create(req: Request, res: Response): Promise<void> {
     try {
-      const { code, name, department, rate, mrp, sampleType, unit, referenceRange, turnaroundHours } = req.body;
+      const { code, name, department, rate, mrp, sampleType, unit, referenceRange, turnaroundHours, franchiseId } = req.body;
 
       if (!code || !name || !department) {
         res.status(400).json({ success: false, message: "Code, Name, and Department are required" });
@@ -95,6 +120,7 @@ export const testMastersController = {
           unit: unit || "",
           referenceRange: referenceRange || "",
           turnaroundHours: Number(turnaroundHours) || 24,
+          franchiseId: franchiseId || null,
           status: "Active",
         },
       });
@@ -127,6 +153,7 @@ export const testMastersController = {
           ...(data.unit !== undefined && { unit: data.unit }),
           ...(data.referenceRange !== undefined && { referenceRange: data.referenceRange }),
           ...(data.turnaroundHours !== undefined && { turnaroundHours: Number(data.turnaroundHours) }),
+          ...(data.franchiseId !== undefined && { franchiseId: data.franchiseId || null }),
           ...(data.status && { status: data.status }),
         },
       });
@@ -153,3 +180,4 @@ export const testMastersController = {
     }
   },
 };
+
