@@ -1,6 +1,7 @@
 import { PrismaClient } from "@prisma/client";
 
 export const ALIGARH_FRANCHISE_ID = "95e74dde-fec7-419c-87b1-8722721772f4";
+export const ALIGARH_LIVE_FRANCHISE_ID = "e748a2b6-2f2d-43a3-b32f-928b74906177";
 
 // 1. DEFAULT / GLOBAL SUB-PARAMETERS (Used by Varanasi and any standard franchise)
 export const DEFAULT_TEST_SUB_PARAMETERS_DATA = [
@@ -97,6 +98,7 @@ export async function seedTestSubParameters(prismaClient?: PrismaClient) {
   const aligarhFranchise = await prisma.franchise.findFirst({
     where: {
       OR: [
+        { id: ALIGARH_LIVE_FRANCHISE_ID },
         { id: ALIGARH_FRANCHISE_ID },
         { code: "ALG-02" },
         { email: "akshataligarh@botlif.com" },
@@ -104,6 +106,7 @@ export async function seedTestSubParameters(prismaClient?: PrismaClient) {
       ],
     },
   });
+  
 
   const aligarhId = aligarhFranchise?.id || ALIGARH_FRANCHISE_ID;
 

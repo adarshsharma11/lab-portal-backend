@@ -1,44 +1,43 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
-generator client {
-  provider = "prisma-client-js"
-}
-
 model Franchise {
-  id             String          @id @default(uuid())
-  code           String          @unique // e.g. FR-BLR-01
-  name           String
-  ownerName      String
-  email          String          @unique
-  phone          String
-  emergencyPhone String?
-  address        String?
-  city           String
-  state          String
-  country        String          @default("India")
-  pincode        String?
-  licenseNumber  String?
-  gstNumber      String?
-  revenueShare   Float           @default(0)
-  status         String          @default("Active") // Active, Inactive, Suspended
-  notes          String?
-  createdAt      DateTime        @default(now())
-  updatedAt      DateTime        @updatedAt
-
-  users          User[]
-  patients       Patient[]
-  doctors        Doctor[]
-  samples        Sample[]
-  tests          Test[]
-  reports        Report[]
-  appointments   Appointment[]
-  invoices       Invoice[]
-  inventoryItems InventoryItem[]
-  testMasters    TestMaster[]
+  id                String             @id @default(uuid())
+  code              String             @unique
+  name              String
+  ownerName         String
+  email             String             @unique
+  phone             String
+  emergencyPhone    String?
+  address           String?
+  city              String
+  state             String
+  country           String             @default("India")
+  pincode           String?
+  licenseNumber     String?
+  gstNumber         String?
+  revenueShare      Float              @default(0)
+  status            String             @default("Active")
+  notes             String?
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+  appointments      Appointment[]
+  doctors           Doctor[]
+  inventoryItems    InventoryItem[]
+  invoices          Invoice[]
+  patients          Patient[]
+  reports           Report[]
+  samples           Sample[]
+  testMasters       TestMaster[]
   testSubParameters TestSubParameter[]
+  tests             Test[]
+  users             User[]
 
   @@map("franchises")
 }
@@ -48,30 +47,29 @@ model User {
   name         String
   email        String     @unique
   passwordHash String
-  role         String     @default("Technician") // Administrator, Pathologist, Technician, Admin, Receptionist, Doctor, Franchise
+  role         String     @default("Technician")
   initials     String?
   active       Boolean    @default(true)
   permissions  String[]   @default([])
   avatar       String?
   mobile       String?
   dateOfBirth  String?
-  gender       String?    // Male, Female, Other
+  gender       String?
   location     String?
   franchiseId  String?
   createdAt    DateTime   @default(now())
   updatedAt    DateTime   @updatedAt
-
-  franchise    Franchise? @relation(fields: [franchiseId], references: [id], onDelete: SetNull)
+  franchise    Franchise? @relation(fields: [franchiseId], references: [id])
 
   @@map("users")
 }
 
 model Patient {
-  id                String         @id @default(uuid())
+  id                String        @id @default(uuid())
   patientCode       String
   name              String
-  age               Int            @default(0)
-  sex               String         // Female, Male, Other
+  age               Int           @default(0)
+  sex               String
   phone             String
   email             String?
   city              String?
@@ -82,18 +80,17 @@ model Patient {
   bloodGroup        String?
   referringDoctorId String?
   franchiseId       String?
-  status            String         @default("Active") // Active, Inactive
+  status            String        @default("Active")
   dateOfBirth       String?
-  createdAt         DateTime       @default(now())
-  updatedAt         DateTime       @updatedAt
-
-  referringDoctor   Doctor?        @relation(fields: [referringDoctorId], references: [id], onDelete: SetNull)
-  franchise         Franchise?     @relation(fields: [franchiseId], references: [id], onDelete: SetNull)
-  samples           Sample[]
-  tests             Test[]
-  reports           Report[]
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
   appointments      Appointment[]
   invoices          Invoice[]
+  franchise         Franchise?    @relation(fields: [franchiseId], references: [id])
+  referringDoctor   Doctor?       @relation(fields: [referringDoctorId], references: [id])
+  reports           Report[]
+  samples           Sample[]
+  tests             Test[]
 
   @@unique([franchiseId, patientCode])
   @@index([franchiseId])
@@ -101,7 +98,7 @@ model Patient {
 }
 
 model Doctor {
-  id            String         @id @default(uuid())
+  id            String        @id @default(uuid())
   name          String
   specialty     String?
   phone         String
@@ -112,14 +109,13 @@ model Doctor {
   description   String?
   dateOfJoining String?
   franchiseId   String?
-  createdAt     DateTime       @default(now())
-  updatedAt     DateTime       @updatedAt
-
-  franchise     Franchise?     @relation(fields: [franchiseId], references: [id], onDelete: SetNull)
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  appointments  Appointment[]
+  franchise     Franchise?    @relation(fields: [franchiseId], references: [id])
+  invoices      Invoice[]
   patients      Patient[]
   reports       Report[]
-  appointments  Appointment[]
-  invoices      Invoice[]
 
   @@map("doctors")
 }
@@ -147,26 +143,25 @@ model Sample {
   barcode     String?
   patientId   String
   franchiseId String?
-  sampleType  String?    @default("Blood") // Blood, Serum, Plasma, Urine, Other
+  sampleType  String?    @default("Blood")
   collectedAt DateTime   @default(now())
   receivedAt  DateTime?
   receivedBy  String?
-  priority    String     @default("Routine") // Routine, Urgent, STAT
-  status      String     @default("Collected") // Collected, Received, Processing, Completed, Rejected
+  priority    String     @default("Routine")
+  status      String     @default("Collected")
   notes       String?
   createdAt   DateTime   @default(now())
   updatedAt   DateTime   @updatedAt
-
-  patient     Patient    @relation(fields: [patientId], references: [id], onDelete: Cascade)
-  franchise   Franchise? @relation(fields: [franchiseId], references: [id], onDelete: SetNull)
-  tests       Test[]
   reports     Report[]
+  franchise   Franchise? @relation(fields: [franchiseId], references: [id])
+  patient     Patient    @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  tests       Test[]
 
   @@map("samples")
 }
 
 model Test {
-  id              String   @id @default(uuid())
+  id              String     @id @default(uuid())
   code            String
   name            String
   department      String
@@ -174,18 +169,17 @@ model Test {
   patientId       String?
   franchiseId     String?
   sampleType      String?
-  price           Float    @default(0)
+  price           Float      @default(0)
   referenceRange  String?
   unit            String?
-  turnaroundHours Int      @default(4)
-  status          String   @default("Active") // Active, Inactive
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
-
-  patient         Patient?   @relation(fields: [patientId], references: [id], onDelete: SetNull)
-  sample          Sample?    @relation(fields: [sampleId], references: [id], onDelete: SetNull)
-  franchise       Franchise? @relation(fields: [franchiseId], references: [id], onDelete: SetNull)
+  turnaroundHours Int        @default(4)
+  status          String     @default("Active")
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
   results         Result[]
+  franchise       Franchise? @relation(fields: [franchiseId], references: [id])
+  patient         Patient?   @relation(fields: [patientId], references: [id])
+  sample          Sample?    @relation(fields: [sampleId], references: [id])
 
   @@map("tests")
 }
@@ -202,7 +196,6 @@ model Result {
   comments       String?
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
-
   test           Test     @relation(fields: [testId], references: [id], onDelete: Cascade)
 
   @@map("results")
@@ -219,16 +212,15 @@ model Report {
   resultIds    String[]   @default([])
   department   String?
   priority     String?
-  status       String     @default("Pending Review") // Draft, Pending Review, Approved, Rejected, Retest Requested
+  status       String     @default("Pending Review")
   pathologist  String?
   comments     String?
   createdAt    DateTime   @default(now())
   updatedAt    DateTime   @updatedAt
-
+  doctor       Doctor     @relation(fields: [doctorId], references: [id], onDelete: Cascade)
+  franchise    Franchise? @relation(fields: [franchiseId], references: [id])
   patient      Patient    @relation(fields: [patientId], references: [id], onDelete: Cascade)
   sample       Sample     @relation(fields: [sampleId], references: [id], onDelete: Cascade)
-  doctor       Doctor     @relation(fields: [doctorId], references: [id], onDelete: Cascade)
-  franchise    Franchise? @relation(fields: [franchiseId], references: [id], onDelete: SetNull)
 
   @@map("reports")
 }
@@ -258,15 +250,14 @@ model Appointment {
   date            String
   time            String
   type            String     @default("Consultation")
-  status          String     @default("Upcoming") // Upcoming, Completed, Cancelled, Rescheduled
+  status          String     @default("Upcoming")
   appointmentLink String?
   createdBy       String     @default("System")
   createdAt       DateTime   @default(now())
   updatedAt       DateTime   @updatedAt
-
-  patient         Patient    @relation(fields: [patientId], references: [id], onDelete: Cascade)
   doctor          Doctor     @relation(fields: [doctorId], references: [id], onDelete: Cascade)
-  franchise       Franchise? @relation(fields: [franchiseId], references: [id], onDelete: SetNull)
+  franchise       Franchise? @relation(fields: [franchiseId], references: [id])
+  patient         Patient    @relation(fields: [patientId], references: [id], onDelete: Cascade)
 
   @@map("appointments")
 }
@@ -278,19 +269,18 @@ model Invoice {
   doctorId      String
   franchiseId   String?
   billDate      String
-  items         Json       // Array of { description: string, quantity: number, mrp: number }
+  items         Json
   discount      Float      @default(0)
   sgst          Float      @default(0)
   cgst          Float      @default(0)
   total         Float      @default(0)
-  paymentStatus String     @default("Pending") // Paid, Pending, Partially Paid
+  paymentStatus String     @default("Pending")
   addedBy       String     @default("System")
   createdAt     DateTime   @default(now())
   updatedAt     DateTime   @updatedAt
-
-  patient       Patient    @relation(fields: [patientId], references: [id], onDelete: Cascade)
   doctor        Doctor     @relation(fields: [doctorId], references: [id], onDelete: Cascade)
-  franchise     Franchise? @relation(fields: [franchiseId], references: [id], onDelete: SetNull)
+  franchise     Franchise? @relation(fields: [franchiseId], references: [id])
+  patient       Patient    @relation(fields: [patientId], references: [id], onDelete: Cascade)
 
   @@map("invoices")
 }
@@ -299,8 +289,8 @@ model InventoryItem {
   id            String     @id @default(uuid())
   medicine      String
   stockQuantity Int        @default(0)
-  purchasePrice Float        @default(0)
-  salePrice     Float        @default(0)
+  purchasePrice Float      @default(0)
+  salePrice     Float      @default(0)
   stockHolder   String     @default("Central Store")
   batchNumber   String
   expiryDate    String
@@ -308,31 +298,30 @@ model InventoryItem {
   franchiseId   String?
   createdAt     DateTime   @default(now())
   updatedAt     DateTime   @updatedAt
-
-  franchise     Franchise? @relation(fields: [franchiseId], references: [id], onDelete: SetNull)
+  franchise     Franchise? @relation(fields: [franchiseId], references: [id])
 
   @@map("inventory_items")
 }
 
 model Instrument {
-  id                 String    @id @default(uuid())
-  name               String
-  manufacturer       String
-  model              String
-  serialNumber       String    @unique
-  department         String
-  instrumentType     String    // Hematology Analyzer, Biochemistry Analyzer, etc.
-  status             String    @default("Online") // Online, Offline, Maintenance, Error
-  installationDate   String
+  id                String   @id @default(uuid())
+  name              String
+  manufacturer      String
+  model             String
+  serialNumber      String   @unique
+  department        String
+  instrumentType    String
+  status            String   @default("Online")
+  installationDate  String
   lastMaintenance   String?
   nextMaintenance   String?
-  connectionStatus   String    @default("Connected") // Connected, Disconnected, Connecting, Error
-  lastCommunication  String?
-  ipAddress          String?
-  location           String?
-  description        String?
-  createdAt          DateTime  @default(now())
-  updatedAt          DateTime  @updatedAt
+  connectionStatus  String   @default("Connected")
+  lastCommunication String?
+  ipAddress         String?
+  location          String?
+  description       String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
 
   @@map("instruments")
 }
@@ -349,7 +338,7 @@ model AnalyzerResult {
   value          String
   unit           String
   raw            Json?
-  status         String   @default("Received") // Received, Matched, Unmatched, Error
+  status         String   @default("Received")
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
@@ -364,7 +353,7 @@ model AnalyzerOrder {
   sampleId       String
   barcode        String
   testCodes      String[] @default([])
-  status         String   @default("Pending") // Pending, Sent, Acknowledged, Error
+  status         String   @default("Pending")
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
@@ -390,7 +379,7 @@ model QCParameter {
   analyte        String
   instrumentId   String
   instrumentName String?
-  controlLevel   String   // Normal, Low, High
+  controlLevel   String
   mean           Float
   sd             Float
   acceptableMin  Float
@@ -401,34 +390,32 @@ model QCParameter {
   active         Boolean  @default(true)
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
-
   runs           QCRun[]
 
   @@map("qc_parameters")
 }
 
 model QCRun {
-  id             String       @id @default(uuid())
-  runNumber      String       @unique
-  runDate        DateTime     @default(now())
+  id             String        @id @default(uuid())
+  runNumber      String        @unique
+  runDate        DateTime      @default(now())
   analyte        String
   instrumentId   String
   instrumentName String?
-  controlLevel   String       // Normal, Low, High
+  controlLevel   String
   parameterId    String
   value          Float
   mean           Float
   sd             Float
   unit           String?
-  status         String       @default("Passed") // Passed, Failed, Warning, Pending
-  zScore         Float        @default(0)
+  status         String        @default("Passed")
+  zScore         Float         @default(0)
   operatorId     String?
   operatorName   String?
   notes          String?
-  createdAt      DateTime     @default(now())
-  updatedAt      DateTime     @updatedAt
-
-  parameter      QCParameter  @relation(fields: [parameterId], references: [id], onDelete: Cascade)
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+  parameter      QCParameter   @relation(fields: [parameterId], references: [id], onDelete: Cascade)
   violations     QCViolation[]
 
   @@map("qc_runs")
@@ -441,20 +428,19 @@ model QCViolation {
   analyte          String
   instrumentId     String
   instrumentName   String?
-  controlLevel     String    // Normal, Low, High
+  controlLevel     String
   value            Float
   expectedRange    String
   mean             Float
   sd               Float
-  violationType    String    // 1_2S, 1_3S, 2_2S, R_4S, 4_1S, 10_X, Shift, Trend, Out of range
-  status           String    @default("Open") // Open, Reviewed, Acknowledged, Resolved
+  violationType    String
+  status           String    @default("Open")
   correctiveAction String?
   reviewedBy       String?
   reviewedAt       DateTime?
   resolvedAt       DateTime?
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @updatedAt
-
   qcRun            QCRun     @relation(fields: [qcRunId], references: [id], onDelete: Cascade)
 
   @@map("qc_violations")
@@ -497,7 +483,7 @@ model ReferenceRange {
   testCode     String
   testName     String
   parameter    String
-  gender       String   @default("Both") // Male, Female, Both
+  gender       String   @default("Both")
   ageMin       Int?
   ageMax       Int?
   minimum      Float
@@ -555,7 +541,7 @@ model SystemPreference {
 
 model AuditActivity {
   id        String   @id @default(uuid())
-  type      String   // Patient registered, Sample collected, Test completed, Report approved, Critical result
+  type      String
   subject   String
   detail    String
   time      String
@@ -565,49 +551,46 @@ model AuditActivity {
 }
 
 model TestMaster {
-  id              String   @id @default(uuid())
+  id              String     @id @default(uuid())
   itemId          String?
   code            String
   name            String
   department      String
-  rate            Float    @default(0)
-  mrp             Float    @default(0)
-  sampleType      String?  @default("Blood")
+  rate            Float      @default(0)
+  mrp             Float      @default(0)
+  sampleType      String?    @default("Blood")
   referenceRange  String?
   unit            String?
-  turnaroundHours Int      @default(24)
-  status          String   @default("Active")
+  turnaroundHours Int        @default(24)
+  status          String     @default("Active")
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
   franchiseId     String?
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  franchise       Franchise? @relation(fields: [franchiseId], references: [id])
 
-  franchise       Franchise? @relation(fields: [franchiseId], references: [id], onDelete: SetNull)
-
-  @@map("test_masters")
   @@index([code])
   @@index([name])
   @@index([department])
   @@index([franchiseId])
+  @@map("test_masters")
 }
 
 model TestSubParameter {
-  id             String   @id @default(uuid())
-  department     String   // e.g. Hematology, Bio Chemistry
-  mainParameter  String   // e.g. CBC, LFT, KFT, LIPID PROFILE
-  subParameter   String   // e.g. Hb, TLC, Bilirubin-total, etc.
+  id             String     @id @default(uuid())
+  department     String
+  mainParameter  String
+  subParameter   String
   unit           String?
   referenceRange String?
   defaultValue   String?
-  orderIndex     Int      @default(0)
+  orderIndex     Int        @default(0)
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
   franchiseId    String?
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  franchise      Franchise? @relation(fields: [franchiseId], references: [id])
 
-  franchise      Franchise? @relation(fields: [franchiseId], references: [id], onDelete: SetNull)
-
-  @@map("test_sub_parameters")
   @@index([mainParameter])
   @@index([department])
   @@index([franchiseId])
+  @@map("test_sub_parameters")
 }
-
