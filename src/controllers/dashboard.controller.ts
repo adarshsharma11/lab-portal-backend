@@ -459,3 +459,235 @@ export const getProfitLoss = async (req: AuthenticatedRequest, res: Response, ne
   }
 };
 
+export const getSalesReport = async (req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    const { isFranchise, userFranchiseId, effectiveFranchiseId } = getTenantScope(req);
+    const franchiseId = isFranchise ? userFranchiseId : effectiveFranchiseId;
+
+    const startDate = typeof req.query.startDate === "string" ? req.query.startDate.trim() : undefined;
+    const endDate = typeof req.query.endDate === "string" ? req.query.endDate.trim() : undefined;
+
+    // Fetch franchise details if scoped
+    let franchise = null;
+    if (franchiseId && franchiseId !== "__NO_FRANCHISE_ACCESS__") {
+      franchise = await prisma.franchise.findUnique({ where: { id: franchiseId } });
+    }
+
+    // Build date filter
+    const dateConditions: any[] = [];
+    if (startDate && endDate) {
+      const startDateTime = new Date(`${startDate}T00:00:00.000Z`);
+      const endDateTime = new Date(`${endDate}T23:59:59.999Z`);
+      dateConditions.push({
+        OR: [
+          { createdAt: { gte: startDateTime, lte: endDateTime } },
+          { billDate: { gte: startDate, lte: endDate } },
+        ],
+      });
+    } else if (startDate) {
+      const startDateTime = new Date(`${startDate}T00:00:00.000Z`);
+      dateConditions.push({
+        OR: [
+          { createdAt: { gte: startDateTime } },
+          { billDate: { gte: startDate } },
+        ],
+      });
+    } else if (endDate) {
+      const endDateTime = new Date(`${endDate}T23:59:59.999Z`);
+      dateConditions.push({
+        OR: [
+          { createdAt: { lte: endDateTime } },
+          { billDate: { lte: endDate } },
+        ],
+      });
+    }
+
+    if (franchiseId === "__NO_FRANCHISE_ACCESS__") {
+      res.json({
+        data: {
+          dateRange: { startDate: startDate || null, endDate: endDate || null },
+          franchiseId: null,
+          franchiseName: "No Access",
+          summary: {
+            totalSales: 0,
+            paidAmount: 0,
+            pendingAmount: 0,
+            totalDiscount: 0,
+            totalTax: 0,
+            totalInvoices: 0,
+            uniquePatients: 0,
+            averageInvoiceValue: 0,
+          },
+          dateWiseBreakdown: [],
+          franchiseWiseBreakdown: [],
+          invoices: [],
+        },
+      });
+      return;
+    }
+
+    const andConditions: any[] = [];
+    if (franchiseId) {
+      andConditions.push({ franchiseId });
+    }
+    if (dateConditions.length > 0) {
+      andConditions.push(...dateConditions);
+    }
+
+    const whereClause: any = andConditions.length > 0 ? { AND: andConditions } : {};
+
+    const invoices = await prisma.invoice.findMany({
+      where: whereClause,
+      include: {
+        patient: { select: { id: true, name: true, patientCode: true, phone: true } },
+        doctor: { select: { id: true, name: true, specialty: true } },
+        franchise: { select: { id: true, name: true, code: true, city: true } },
+      },
+      orderBy: { createdAt: "desc" },
+    });
+
+    const totalSales = invoices.reduce((sum, inv) => sum + (Number(inv.total) || 0), 0);
+    const paidAmount = invoices.filter((inv) => inv.paymentStatus === "Paid").reduce((sum, inv) => sum + (Number(inv.total) || 0), 0);
+    const pendingAmount = totalSales - paidAmount;
+    const totalDiscount = invoices.reduce((sum, inv) => sum + (Number(inv.discount) || 0), 0);
+    const totalTax = invoices.reduce((sum, inv) => sum + (Number(inv.sgst || 0) + Number(inv.cgst || 0)), 0);
+    const totalInvoices = invoices.length;
+    const uniquePatientIds = new Set(invoices.map((inv) => inv.patientId).filter(Boolean));
+    const uniquePatients = uniquePatientIds.size;
+    const averageInvoiceValue = totalInvoices > 0 ? Math.round((totalSales / totalInvoices) * 100) / 100 : 0;
+
+    // Group by Date
+    const dateMap: Record<string, { date: string; totalSales: number; paidAmount: number; pendingAmount: number; invoiceCount: number; patients: Set<string> }> = {};
+    invoices.forEach((inv) => {
+      const dateStr = inv.billDate || (inv.createdAt ? new Date(inv.createdAt).toISOString().slice(0, 10) : "N/A");
+      if (!dateMap[dateStr]) {
+        dateMap[dateStr] = {
+          date: dateStr,
+          totalSales: 0,
+          paidAmount: 0,
+          pendingAmount: 0,
+          invoiceCount: 0,
+          patients: new Set(),
+        };
+      }
+      const amount = Number(inv.total) || 0;
+      dateMap[dateStr].totalSales += amount;
+      if (inv.paymentStatus === "Paid") {
+        dateMap[dateStr].paidAmount += amount;
+      } else {
+        dateMap[dateStr].pendingAmount += amount;
+      }
+      dateMap[dateStr].invoiceCount += 1;
+      if (inv.patientId) dateMap[dateStr].patients.add(inv.patientId);
+    });
+
+    const dateWiseBreakdown = Object.values(dateMap)
+      .map((d) => ({
+        date: d.date,
+        totalSales: Math.round(d.totalSales * 100) / 100,
+        paidAmount: Math.round(d.paidAmount * 100) / 100,
+        pendingAmount: Math.round(d.pendingAmount * 100) / 100,
+        invoiceCount: d.invoiceCount,
+        uniquePatients: d.patients.size,
+      }))
+      .sort((a, b) => b.date.localeCompare(a.date));
+
+    // Group by Franchise (for Admin when viewing all franchises)
+    const franchiseMap: Record<string, { franchiseId: string; franchiseName: string; franchiseCode: string; totalSales: number; paidAmount: number; pendingAmount: number; invoiceCount: number }> = {};
+    if (!franchiseId) {
+      invoices.forEach((inv) => {
+        const fid = inv.franchiseId || "central-lab";
+        const fname = inv.franchise?.name || "Central / Default";
+        const fcode = inv.franchise?.code || "HQ";
+        if (!franchiseMap[fid]) {
+          franchiseMap[fid] = {
+            franchiseId: fid,
+            franchiseName: fname,
+            franchiseCode: fcode,
+            totalSales: 0,
+            paidAmount: 0,
+            pendingAmount: 0,
+            invoiceCount: 0,
+          };
+        }
+        const amount = Number(inv.total) || 0;
+        franchiseMap[fid].totalSales += amount;
+        if (inv.paymentStatus === "Paid") {
+          franchiseMap[fid].paidAmount += amount;
+        } else {
+          franchiseMap[fid].pendingAmount += amount;
+        }
+        franchiseMap[fid].invoiceCount += 1;
+      });
+    }
+
+    const franchiseWiseBreakdown = Object.values(franchiseMap)
+      .map((f) => ({
+        ...f,
+        totalSales: Math.round(f.totalSales * 100) / 100,
+        paidAmount: Math.round(f.paidAmount * 100) / 100,
+        pendingAmount: Math.round(f.pendingAmount * 100) / 100,
+      }))
+      .sort((a, b) => b.totalSales - a.totalSales);
+
+    // Formatted invoice list
+    const invoiceList = invoices.map((inv) => {
+      let itemDescriptions = "Pathology Diagnostic Services";
+      if (Array.isArray(inv.items) && inv.items.length > 0) {
+        itemDescriptions = (inv.items as any[])
+          .map((it) => it.description || it.name || "Diagnostic Service")
+          .join(", ");
+      }
+      return {
+        id: inv.id,
+        billNumber: inv.billNumber,
+        billDate: inv.billDate || (inv.createdAt ? new Date(inv.createdAt).toISOString().slice(0, 10) : ""),
+        createdAt: inv.createdAt ? new Date(inv.createdAt).toISOString() : "",
+        patientId: inv.patientId,
+        patientName: inv.patient?.name || "Unknown Patient",
+        patientCode: inv.patient?.patientCode || "—",
+        patientPhone: inv.patient?.phone || "—",
+        doctorId: inv.doctorId,
+        doctorName: inv.doctor?.name || "Direct / Walk-in",
+        doctorSpecialty: inv.doctor?.specialty || "",
+        itemsSummary: itemDescriptions,
+        items: inv.items,
+        total: Number(inv.total) || 0,
+        discount: Number(inv.discount) || 0,
+        paymentStatus: inv.paymentStatus,
+        franchiseId: inv.franchiseId,
+        franchiseName: inv.franchise?.name || "Main Lab",
+        franchiseCode: inv.franchise?.code || "",
+        addedBy: inv.addedBy,
+      };
+    });
+
+    res.json({
+      data: {
+        dateRange: {
+          startDate: startDate || null,
+          endDate: endDate || null,
+        },
+        franchiseId: franchiseId || null,
+        franchiseName: franchise ? franchise.name : "All Franchises (Global HQ)",
+        summary: {
+          totalSales: Math.round(totalSales * 100) / 100,
+          paidAmount: Math.round(paidAmount * 100) / 100,
+          pendingAmount: Math.round(pendingAmount * 100) / 100,
+          totalDiscount: Math.round(totalDiscount * 100) / 100,
+          totalTax: Math.round(totalTax * 100) / 100,
+          totalInvoices,
+          uniquePatients,
+          averageInvoiceValue,
+        },
+        dateWiseBreakdown,
+        franchiseWiseBreakdown,
+        invoices: invoiceList,
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+
