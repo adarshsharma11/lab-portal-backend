@@ -287,11 +287,16 @@ export const getDoctorLedger = async (req: AuthenticatedRequest, res: Response, 
   try {
     const { id } = req.params;
     const { isFranchise, userFranchiseId } = getTenantScope(req);
-    const startDate = typeof req.query.startDate === "string" ? req.query.startDate.trim() : undefined;
-    const endDate = typeof req.query.endDate === "string" ? req.query.endDate.trim() : undefined;
+    const startDate = typeof req.query.startDate === "string" && req.query.startDate.trim() ? req.query.startDate.trim() : undefined;
+    const endDate = typeof req.query.endDate === "string" && req.query.endDate.trim() ? req.query.endDate.trim() : undefined;
 
-    const doctor = await prisma.doctor.findUnique({
-      where: { id },
+    const doctor = await prisma.doctor.findFirst({
+      where: {
+        OR: [
+          { id },
+          { name: { equals: id, mode: "insensitive" } },
+        ],
+      },
       include: {
         franchise: { select: { id: true, name: true, code: true, city: true } },
       },
@@ -307,7 +312,10 @@ export const getDoctorLedger = async (req: AuthenticatedRequest, res: Response, 
       return;
     }
 
-    // Build date filters
+    const cleanDocName = doctor.name.trim();
+    const strippedDocName = cleanDocName.replace(/^doctor\s*–\s*/i, "").replace(/^dr\.?\s*/i, "").trim();
+
+    // Build date filters for invoices
     const dateConditions: any[] = [];
     if (startDate && endDate) {
       const startDateTime = new Date(`${startDate}T00:00:00.000Z`);
@@ -336,21 +344,66 @@ export const getDoctorLedger = async (req: AuthenticatedRequest, res: Response, 
       });
     }
 
-    const andConditions: any[] = [{ doctorId: id }];
+    // Doctor matching condition on invoices
+    const doctorMatchingConditions: any[] = [
+      { doctorId: doctor.id },
+      { doctor: { name: { equals: doctor.name, mode: "insensitive" } } },
+      { patient: { referringDoctorId: doctor.id } },
+      { patient: { referringDoctor: { name: { equals: doctor.name, mode: "insensitive" } } } },
+    ];
+    if (strippedDocName && strippedDocName.length >= 3) {
+      doctorMatchingConditions.push(
+        { doctor: { name: { contains: strippedDocName, mode: "insensitive" } } },
+        { patient: { referringDoctor: { name: { contains: strippedDocName, mode: "insensitive" } } } }
+      );
+    }
+
+    const invoiceAndConditions: any[] = [
+      { OR: doctorMatchingConditions },
+    ];
+
     if (isFranchise && userFranchiseId) {
-      andConditions.push({ franchiseId: userFranchiseId });
+      invoiceAndConditions.push({ franchiseId: userFranchiseId });
     }
     if (dateConditions.length > 0) {
-      andConditions.push(...dateConditions);
+      invoiceAndConditions.push(...dateConditions);
     }
 
-    const whereClause: any = { AND: andConditions };
-
     const invoices = await prisma.invoice.findMany({
-      where: whereClause,
+      where: { AND: invoiceAndConditions },
       include: {
-        patient: { select: { id: true, name: true, patientCode: true, phone: true, age: true, sex: true } },
+        patient: { select: { id: true, name: true, patientCode: true, phone: true, age: true, sex: true, referringDoctorId: true } },
+        doctor: { select: { id: true, name: true } },
         franchise: { select: { id: true, name: true, code: true, city: true } },
+      },
+      orderBy: { createdAt: "desc" },
+    });
+
+    // Also fetch all referred patients for this doctor
+    const patientDoctorConditions: any[] = [
+      { referringDoctorId: doctor.id },
+      { referringDoctor: { name: { equals: doctor.name, mode: "insensitive" } } },
+    ];
+    if (strippedDocName && strippedDocName.length >= 3) {
+      patientDoctorConditions.push(
+        { referringDoctor: { name: { contains: strippedDocName, mode: "insensitive" } } }
+      );
+    }
+
+    const patientAndConditions: any[] = [
+      { OR: patientDoctorConditions },
+    ];
+    if (isFranchise && userFranchiseId) {
+      patientAndConditions.push({ franchiseId: userFranchiseId });
+    }
+
+    const referredPatients = await prisma.patient.findMany({
+      where: { AND: patientAndConditions },
+      include: {
+        franchise: { select: { id: true, name: true, code: true, city: true } },
+        invoices: {
+          select: { id: true, total: true, paymentStatus: true, billDate: true, createdAt: true },
+        },
       },
       orderBy: { createdAt: "desc" },
     });
@@ -360,7 +413,15 @@ export const getDoctorLedger = async (req: AuthenticatedRequest, res: Response, 
     const totalPending = totalBusiness - totalPaid;
     const totalDiscount = invoices.reduce((sum, inv) => sum + (Number(inv.discount) || 0), 0);
     const totalInvoices = invoices.length;
-    const uniquePatientIds = new Set(invoices.map((inv) => inv.patientId).filter(Boolean));
+
+    // Unique patients across both invoices and referred patients list
+    const uniquePatientIds = new Set<string>();
+    invoices.forEach((inv) => {
+      if (inv.patientId) uniquePatientIds.add(inv.patientId);
+    });
+    referredPatients.forEach((p) => {
+      uniquePatientIds.add(p.id);
+    });
     const totalPatients = uniquePatientIds.size;
     const averageInvoiceValue = totalInvoices > 0 ? Math.round((totalBusiness / totalInvoices) * 100) / 100 : 0;
 
@@ -428,6 +489,26 @@ export const getDoctorLedger = async (req: AuthenticatedRequest, res: Response, 
       };
     });
 
+    // Formatted referred patients list
+    const patientsListFormatted = referredPatients.map((p) => {
+      const pInvoices = p.invoices || [];
+      const pTotalSpent = pInvoices.reduce((sum, inv) => sum + (Number(inv.total) || 0), 0);
+      return {
+        id: p.id,
+        patientCode: p.patientCode,
+        name: p.name,
+        age: p.age,
+        sex: p.sex,
+        phone: p.phone,
+        email: p.email,
+        city: p.city,
+        createdAt: p.createdAt ? new Date(p.createdAt).toISOString() : "",
+        totalInvoices: pInvoices.length,
+        totalSpent: Math.round(pTotalSpent * 100) / 100,
+        franchiseName: p.franchise?.name || "",
+      };
+    });
+
     res.json({
       data: {
         doctor: {
@@ -459,9 +540,11 @@ export const getDoctorLedger = async (req: AuthenticatedRequest, res: Response, 
         },
         dateWiseBreakdown,
         invoices: invoiceList,
+        patients: patientsListFormatted,
       },
     });
   } catch (error) {
     next(error);
   }
 };
+

@@ -126,13 +126,40 @@ export const create = async (req: AuthenticatedRequest, res: Response, next: Nex
     let doctor = null;
     if (data.doctorId && typeof data.doctorId === "string" && data.doctorId.trim()) {
       const did = data.doctorId.trim();
+      const stripped = did.replace(/^doctor\s*–\s*/i, "").replace(/^dr\.?\s*/i, "").trim();
       doctor = await prisma.doctor.findFirst({
         where: {
           OR: [
             { id: did },
-            { name: { contains: did, mode: "insensitive" } },
+            { name: { equals: did, mode: "insensitive" } },
+            { name: { equals: stripped, mode: "insensitive" } },
+            { name: { contains: stripped, mode: "insensitive" } },
           ],
         },
+      });
+
+      if (!doctor && did !== "None" && did !== "null" && did !== "") {
+        // Auto-create referral source entity so it has a valid doctor record
+        doctor = await prisma.doctor.create({
+          data: {
+            name: stripped || did,
+            specialty: did.toLowerCase().includes("collection") 
+              ? "Collection Centre" 
+              : did.toLowerCase().includes("camp") 
+              ? "Health Camp" 
+              : did.toLowerCase().includes("direct") || did.toLowerCase().includes("walk-in") 
+              ? "Self Referral" 
+              : "Referral Source",
+            phone: "N/A",
+            franchiseId,
+          },
+        });
+      }
+    }
+
+    if (!doctor && patient.referringDoctorId) {
+      doctor = await prisma.doctor.findUnique({
+        where: { id: patient.referringDoctorId },
       });
     }
 
@@ -239,14 +266,27 @@ export const update = async (req: AuthenticatedRequest, res: Response, next: Nex
     let doctorIdUpdate: string | undefined = undefined;
     if (data.doctorId && typeof data.doctorId === "string" && data.doctorId.trim()) {
       const did = data.doctorId.trim();
-      const doctor = await prisma.doctor.findFirst({
+      const stripped = did.replace(/^doctor\s*–\s*/i, "").replace(/^dr\.?\s*/i, "").trim();
+      let doctor = await prisma.doctor.findFirst({
         where: {
           OR: [
             { id: did },
-            { name: { contains: did, mode: "insensitive" } },
+            { name: { equals: did, mode: "insensitive" } },
+            { name: { equals: stripped, mode: "insensitive" } },
+            { name: { contains: stripped, mode: "insensitive" } },
           ],
         },
       });
+      if (!doctor && did !== "None" && did !== "null" && did !== "") {
+        doctor = await prisma.doctor.create({
+          data: {
+            name: stripped || did,
+            specialty: "Referral Source",
+            phone: "N/A",
+            franchiseId: existing.franchiseId,
+          },
+        });
+      }
       if (doctor) doctorIdUpdate = doctor.id;
     }
 
