@@ -48,6 +48,12 @@ export const DEFAULT_TEST_SUB_PARAMETERS_DATA = [
   { department: "Bio Chemistry", mainParameter: "LIPID PROFILE", subParameter: "LDL", unit: "mg/dL", referenceRange: "< 100", defaultValue: "91.4", orderIndex: 3, franchiseId: null },
   { department: "Bio Chemistry", mainParameter: "LIPID PROFILE", subParameter: "VLDL", unit: "mg/dL", referenceRange: "< 30", defaultValue: "25.6", orderIndex: 4, franchiseId: null },
   { department: "Bio Chemistry", mainParameter: "LIPID PROFILE", subParameter: "TRIGLYCERIDE", unit: "mg/dL", referenceRange: "< 150", defaultValue: "128.0", orderIndex: 5, franchiseId: null },
+
+  // Haematology - BLOOD GROUP (ABO & RH TYPING)
+  { department: "Haematology", mainParameter: "BLOOD GROUP (ABO & RH TYPING)", subParameter: "Blood Groups", unit: "", referenceRange: "A / B / AB / O", defaultValue: "B", orderIndex: 1, franchiseId: null },
+  { department: "Haematology", mainParameter: "BLOOD GROUP (ABO & RH TYPING)", subParameter: "RH TYPING", unit: "", referenceRange: "POSITIVE / NEGATIVE", defaultValue: "POSITIVE", orderIndex: 2, franchiseId: null },
+  { department: "Haematology", mainParameter: "BLOOD GROUP", subParameter: "Blood Groups", unit: "", referenceRange: "A / B / AB / O", defaultValue: "B", orderIndex: 1, franchiseId: null },
+  { department: "Haematology", mainParameter: "BLOOD GROUP", subParameter: "RH TYPING", unit: "", referenceRange: "POSITIVE / NEGATIVE", defaultValue: "POSITIVE", orderIndex: 2, franchiseId: null },
 ];
 
 // 2. ALIGARH FRANCHISE SPECIFIC SUB-PARAMETERS
