@@ -6,20 +6,16 @@ export const ALIGARH_LIVE_FRANCHISE_ID = "e748a2b6-2f2d-43a3-b32f-928b74906177";
 // 1. DEFAULT / GLOBAL SUB-PARAMETERS (Used by Varanasi and any standard franchise)
 export const DEFAULT_TEST_SUB_PARAMETERS_DATA = [
   // Hematology - CBC
-  { department: "Hematology", mainParameter: "CBC", subParameter: "Hb", unit: "g/dL", referenceRange: "13.0 - 17.0", defaultValue: "14.2", orderIndex: 1, franchiseId: null },
-  { department: "Hematology", mainParameter: "CBC", subParameter: "TLC", unit: "10^3/µL", referenceRange: "4.0 - 10.0", defaultValue: "6.8", orderIndex: 2, franchiseId: null },
-  { department: "Hematology", mainParameter: "CBC", subParameter: "DLC", unit: "%", referenceRange: "Differential Leucocyte Count", defaultValue: "Normal", orderIndex: 3, franchiseId: null },
-  { department: "Hematology", mainParameter: "CBC", subParameter: "Neutrophils", unit: "%", referenceRange: "40 - 80", defaultValue: "62.0", orderIndex: 4, franchiseId: null },
-  { department: "Hematology", mainParameter: "CBC", subParameter: "Lymphocytes", unit: "%", referenceRange: "20 - 40", defaultValue: "28.5", orderIndex: 5, franchiseId: null },
-  { department: "Hematology", mainParameter: "CBC", subParameter: "Eosinophils", unit: "%", referenceRange: "1 - 6", defaultValue: "3.0", orderIndex: 6, franchiseId: null },
-  { department: "Hematology", mainParameter: "CBC", subParameter: "Monocytes", unit: "%", referenceRange: "2 - 10", defaultValue: "6.0", orderIndex: 7, franchiseId: null },
-  { department: "Hematology", mainParameter: "CBC", subParameter: "Basophils", unit: "%", referenceRange: "0 - 2", defaultValue: "0.5", orderIndex: 8, franchiseId: null },
-  { department: "Hematology", mainParameter: "CBC", subParameter: "ESR", unit: "mm/hr", referenceRange: "0 - 15", defaultValue: "8", orderIndex: 9, franchiseId: null },
-  { department: "Hematology", mainParameter: "CBC", subParameter: "RBC", unit: "10^6/µL", referenceRange: "4.50 - 5.50", defaultValue: "4.85", orderIndex: 10, franchiseId: null },
-  { department: "Hematology", mainParameter: "CBC", subParameter: "MCH", unit: "pg", referenceRange: "27.0 - 32.0", defaultValue: "29.5", orderIndex: 11, franchiseId: null },
-  { department: "Hematology", mainParameter: "CBC", subParameter: "MCHC", unit: "g/dL", referenceRange: "31.5 - 34.5", defaultValue: "33.2", orderIndex: 12, franchiseId: null },
-  { department: "Hematology", mainParameter: "CBC", subParameter: "MCV", unit: "fL", referenceRange: "83.0 - 101.0", defaultValue: "88.0", orderIndex: 13, franchiseId: null },
-  { department: "Hematology", mainParameter: "CBC", subParameter: "Platelet", unit: "10^3/µL", referenceRange: "150 - 410", defaultValue: "245", orderIndex: 14, franchiseId: null },
+  { department: "Hematology", mainParameter: "CBC", subParameter: "Hb", unit: "g/dL", referenceRange: "11.0 - 16.0", defaultValue: "12.1", orderIndex: 1, franchiseId: null },
+  { department: "Hematology", mainParameter: "CBC", subParameter: "TLC", unit: "/cu mm", referenceRange: "4000 - 11000", defaultValue: "5,800", orderIndex: 2, franchiseId: null },
+  { department: "Hematology", mainParameter: "CBC", subParameter: "DIFFERENTIAL LEUCOCYTE COUNT (DLC)", unit: "%", referenceRange: "HEADING", defaultValue: "", orderIndex: 3, franchiseId: null },
+  { department: "Hematology", mainParameter: "CBC", subParameter: "RBC", unit: "Millions/cm m", referenceRange: "3.5 - 5.0", defaultValue: "3.92", orderIndex: 4, franchiseId: null },
+  { department: "Hematology", mainParameter: "CBC", subParameter: "PCV", unit: "%", referenceRange: "34 - 47", defaultValue: "36.3", orderIndex: 5, franchiseId: null },
+  { department: "Hematology", mainParameter: "CBC", subParameter: "MCV", unit: "fl", referenceRange: "76.0 - 96.0", defaultValue: "92.6", orderIndex: 6, franchiseId: null },
+  { department: "Hematology", mainParameter: "CBC", subParameter: "MCH", unit: "pg", referenceRange: "27.0 - 32.0", defaultValue: "30.9", orderIndex: 7, franchiseId: null },
+  { department: "Hematology", mainParameter: "CBC", subParameter: "MCHC", unit: "g/dl", referenceRange: "30.0 - 35.0", defaultValue: "33.3", orderIndex: 8, franchiseId: null },
+  { department: "Hematology", mainParameter: "CBC", subParameter: "Platelet", unit: "/mm", referenceRange: "150000 - 450000", defaultValue: "1,19,000", orderIndex: 9, franchiseId: null },
+  { department: "Hematology", mainParameter: "CBC", subParameter: "ESR", unit: "mm/hr", referenceRange: "0 - 15", defaultValue: "8", orderIndex: 10, franchiseId: null },
 
   // Bio Chemistry - LFT
   { department: "Bio Chemistry", mainParameter: "LFT", subParameter: "Bilirubin-total", unit: "mg/dL", referenceRange: "0.3 - 1.2", defaultValue: "0.75", orderIndex: 1, franchiseId: null },
