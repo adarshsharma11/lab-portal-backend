@@ -183,6 +183,19 @@ export const create = async (req: AuthenticatedRequest, res: Response, next: Nex
       ? data.billNumber.trim()
       : `INV-${Date.now().toString().slice(-6)}`;
 
+    // Franchise-scoped uniqueness check for billNumber
+    const existingBill = await prisma.invoice.findFirst({
+      where: {
+        billNumber: { equals: billNumber, mode: "insensitive" },
+        franchiseId,
+      },
+    });
+
+    if (existingBill) {
+      res.status(409).json({ message: "Bill No. already exists in this franchise." });
+      return;
+    }
+
     let items = data.items;
     if (!items || !Array.isArray(items) || items.length === 0) {
       if (data.itemDescription) {
@@ -290,10 +303,33 @@ export const update = async (req: AuthenticatedRequest, res: Response, next: Nex
       if (doctor) doctorIdUpdate = doctor.id;
     }
 
+    const targetFranchiseId = isFranchise
+      ? userFranchiseId
+      : (data.franchiseId !== undefined ? (typeof data.franchiseId === "string" ? data.franchiseId.trim() : data.franchiseId) : existing.franchiseId);
+
+    const targetBillNumber = data.billNumber !== undefined && typeof data.billNumber === "string"
+      ? data.billNumber.trim()
+      : (data.billNumber || undefined);
+
+    if (targetBillNumber) {
+      const existingBill = await prisma.invoice.findFirst({
+        where: {
+          id: { not: id },
+          billNumber: { equals: targetBillNumber, mode: "insensitive" },
+          franchiseId: targetFranchiseId,
+        },
+      });
+
+      if (existingBill) {
+        res.status(409).json({ message: "Bill No. already exists in this franchise." });
+        return;
+      }
+    }
+
     const updated = await prisma.invoice.update({
       where: { id },
       data: {
-        billNumber: data.billNumber,
+        billNumber: targetBillNumber,
         patientId: patientIdUpdate,
         doctorId: doctorIdUpdate,
         franchiseId: isFranchise ? undefined : (data.franchiseId !== undefined ? data.franchiseId : undefined),

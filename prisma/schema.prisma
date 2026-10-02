@@ -264,7 +264,7 @@ model Appointment {
 
 model Invoice {
   id            String     @id @default(uuid())
-  billNumber    String     @unique
+  billNumber    String
   patientId     String
   doctorId      String
   franchiseId   String?
@@ -282,6 +282,8 @@ model Invoice {
   franchise     Franchise? @relation(fields: [franchiseId], references: [id])
   patient       Patient    @relation(fields: [patientId], references: [id], onDelete: Cascade)
 
+  @@unique([franchiseId, billNumber])
+  @@index([franchiseId])
   @@map("invoices")
 }
 

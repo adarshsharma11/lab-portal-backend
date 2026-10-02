@@ -22,9 +22,9 @@ export const errorHandler = (
     const rawTarget = Array.isArray(err.meta?.target) ? err.meta.target.join(", ") : String(err.meta?.target || "field");
     let target = "value";
     if (rawTarget.includes("email")) target = "email";
-    else if (rawTarget.includes("patientCode") || rawTarget.includes("patient_code")) target = "patient code";
+    else if (rawTarget.includes("patientCode") || rawTarget.includes("patient_code")) target = "patient code in this franchise";
     else if (rawTarget.includes("accession")) target = "accession number";
-    else if (rawTarget.includes("billNumber") || rawTarget.includes("bill_number")) target = "bill number";
+    else if (rawTarget.includes("billNumber") || rawTarget.includes("bill_number")) target = "bill number in this franchise";
     else if (rawTarget.includes("reportNumber") || rawTarget.includes("report_number")) target = "report number";
     res.status(409).json({ message: `A record with this ${target} already exists.` });
     return;
