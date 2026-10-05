@@ -1,6 +1,6 @@
 import { Request, Response, NextFunction } from "express";
 import { prisma } from "../lib/prisma";
-import { AuthenticatedRequest, getTenantScope } from "../middleware/auth.middleware";
+import { AuthenticatedRequest, getTenantScope, getUserIdentifier } from "../middleware/auth.middleware";
 
 export const list = async (req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> => {
   try {
@@ -160,6 +160,7 @@ export const create = async (req: AuthenticatedRequest, res: Response, next: Nex
         priority: data.priority || "Routine",
         status: data.status || "Collected",
         notes: data.notes || null,
+        createdBy: getUserIdentifier(req, data.createdBy || data.receivedBy || "Admin"),
       },
       include: { 
         patient: true,

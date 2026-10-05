@@ -145,3 +145,18 @@ export const getTenantScope = (req: AuthenticatedRequest) => {
     effectiveFranchiseId,
   };
 };
+
+/**
+ * Extracts a descriptive user identifier string from req.user (e.g. "Maya (maya@lab.com)")
+ * with an optional fallback.
+ */
+export const getUserIdentifier = (req: AuthenticatedRequest, fallback: string = "Admin"): string => {
+  if (req.user) {
+    if (req.user.name && req.user.email) {
+      return `${req.user.name} (${req.user.email})`;
+    }
+    return req.user.name || req.user.email || fallback;
+  }
+  return fallback;
+};
+

@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from "express";
 import { prisma } from "../lib/prisma";
+import { AuthenticatedRequest, getUserIdentifier } from "../middleware/auth.middleware";
 
 export const list = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
@@ -36,7 +37,7 @@ export const getById = async (req: Request, res: Response, next: NextFunction): 
   }
 };
 
-export const create = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+export const create = async (req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> => {
   try {
     const data = req.body;
     if (!data.name || typeof data.name !== "string" || !data.name.trim()) {
@@ -59,6 +60,7 @@ export const create = async (req: Request, res: Response, next: NextFunction): P
         state: data.state || null,
         description: data.description || null,
         emergencyContact: data.emergencyContact || null,
+        createdBy: getUserIdentifier(req, data.createdBy || "Admin"),
       },
     });
     res.status(201).json({ data: created });

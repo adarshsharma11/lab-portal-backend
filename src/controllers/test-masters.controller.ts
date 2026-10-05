@@ -1,6 +1,6 @@
 import { Request, Response } from "express";
 import { prisma } from "../lib/prisma";
-import { AuthenticatedRequest, getTenantScope } from "../middleware/auth.middleware";
+import { AuthenticatedRequest, getTenantScope, getUserIdentifier } from "../middleware/auth.middleware";
 
 export const testMastersController = {
   async list(req: Request, res: Response): Promise<void> {
@@ -122,6 +122,7 @@ export const testMastersController = {
           turnaroundHours: Number(turnaroundHours) || 24,
           franchiseId: franchiseId || null,
           status: "Active",
+          createdBy: getUserIdentifier(req as AuthenticatedRequest, (req.body.createdBy as string) || "Admin"),
         },
       });
 

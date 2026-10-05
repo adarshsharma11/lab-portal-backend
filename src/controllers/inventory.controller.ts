@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from "express";
 import { prisma } from "../lib/prisma";
+import { AuthenticatedRequest, getUserIdentifier } from "../middleware/auth.middleware";
 
 export const list = async (_req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
@@ -26,7 +27,7 @@ export const getById = async (req: Request, res: Response, next: NextFunction): 
   }
 };
 
-export const create = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+export const create = async (req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> => {
   try {
     const data = req.body;
     if (!data.medicine || typeof data.medicine !== "string" || !data.medicine.trim()) {
@@ -44,6 +45,7 @@ export const create = async (req: Request, res: Response, next: NextFunction): P
         batchNumber: data.batchNumber || `BATCH-${Date.now().toString().slice(-4)}`,
         expiryDate: data.expiryDate || "2027-01-01",
         reorderLevel: Number(data.reorderLevel) || 20,
+        createdBy: getUserIdentifier(req, data.createdBy || "Admin"),
       },
     });
     res.status(201).json({ data: created });

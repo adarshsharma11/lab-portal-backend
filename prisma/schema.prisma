@@ -82,6 +82,7 @@ model Patient {
   franchiseId       String?
   status            String        @default("Active")
   dateOfBirth       String?
+  createdBy         String?       @default("System")
   createdAt         DateTime      @default(now())
   updatedAt         DateTime      @updatedAt
   appointments      Appointment[]
@@ -109,6 +110,7 @@ model Doctor {
   description   String?
   dateOfJoining String?
   franchiseId   String?
+  createdBy     String?       @default("System")
   createdAt     DateTime      @default(now())
   updatedAt     DateTime      @updatedAt
   appointments  Appointment[]
@@ -131,6 +133,7 @@ model Supplier {
   state            String?
   description      String?
   emergencyContact String?
+  createdBy        String?  @default("System")
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
 
@@ -150,6 +153,7 @@ model Sample {
   priority    String     @default("Routine")
   status      String     @default("Collected")
   notes       String?
+  createdBy   String?    @default("System")
   createdAt   DateTime   @default(now())
   updatedAt   DateTime   @updatedAt
   reports     Report[]
@@ -174,6 +178,7 @@ model Test {
   unit            String?
   turnaroundHours Int        @default(4)
   status          String     @default("Active")
+  createdBy       String?    @default("System")
   createdAt       DateTime   @default(now())
   updatedAt       DateTime   @updatedAt
   results         Result[]
@@ -215,6 +220,7 @@ model Report {
   status       String     @default("Pending Review")
   pathologist  String?
   comments     String?
+  createdBy    String?    @default("System")
   createdAt    DateTime   @default(now())
   updatedAt    DateTime   @updatedAt
   doctor       Doctor     @relation(fields: [doctorId], references: [id], onDelete: Cascade)
@@ -276,6 +282,7 @@ model Invoice {
   total         Float      @default(0)
   paymentStatus String     @default("Pending")
   addedBy       String     @default("System")
+  createdBy     String?    @default("System")
   createdAt     DateTime   @default(now())
   updatedAt     DateTime   @updatedAt
   doctor        Doctor     @relation(fields: [doctorId], references: [id], onDelete: Cascade)
@@ -298,6 +305,7 @@ model InventoryItem {
   expiryDate    String
   reorderLevel  Int        @default(20)
   franchiseId   String?
+  createdBy     String?    @default("System")
   createdAt     DateTime   @default(now())
   updatedAt     DateTime   @updatedAt
   franchise     Franchise? @relation(fields: [franchiseId], references: [id])
@@ -565,6 +573,7 @@ model TestMaster {
   unit            String?
   turnaroundHours Int        @default(24)
   status          String     @default("Active")
+  createdBy       String?    @default("System")
   createdAt       DateTime   @default(now())
   updatedAt       DateTime   @updatedAt
   franchiseId     String?

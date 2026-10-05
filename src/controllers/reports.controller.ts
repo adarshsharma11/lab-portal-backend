@@ -1,6 +1,6 @@
 import { Request, Response, NextFunction } from "express";
 import { prisma } from "../lib/prisma";
-import { AuthenticatedRequest, getTenantScope } from "../middleware/auth.middleware";
+import { AuthenticatedRequest, getTenantScope, getUserIdentifier } from "../middleware/auth.middleware";
 
 export const listReports = async (req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> => {
   try {
@@ -285,6 +285,7 @@ export const createReport = async (req: AuthenticatedRequest, res: Response, nex
         status: data.status || "Pending Review",
         pathologist: data.pathologist || "Dr. Pranjali Sejwal, MBBS, MD Pathology",
         comments: data.comments || data.interpretation || null,
+        createdBy: getUserIdentifier(req, data.createdBy || data.pathologist || "Admin"),
       },
       include: {
         patient: true,

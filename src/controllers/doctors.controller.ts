@@ -1,7 +1,7 @@
 import { Request, Response, NextFunction } from "express";
 import { prisma } from "../lib/prisma";
 import { hashPassword } from "../utils/auth";
-import { AuthenticatedRequest, getTenantScope } from "../middleware/auth.middleware";
+import { AuthenticatedRequest, getTenantScope, getUserIdentifier } from "../middleware/auth.middleware";
 
 export const list = async (req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> => {
   try {
@@ -115,6 +115,7 @@ export const create = async (req: AuthenticatedRequest, res: Response, next: Nex
         description: data.description || null,
         dateOfJoining: data.dateOfJoining || null,
         franchiseId,
+        createdBy: getUserIdentifier(req, data.createdBy || "Admin"),
       },
       include: {
         franchise: true,
