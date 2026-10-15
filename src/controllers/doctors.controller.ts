@@ -3,6 +3,11 @@ import { prisma } from "../lib/prisma";
 import { hashPassword } from "../utils/auth";
 import { AuthenticatedRequest, getTenantScope, getUserIdentifier } from "../middleware/auth.middleware";
 
+const isProtectedLoginRole = (role: string | null | undefined): boolean => {
+  const normalized = (role || "").trim().toLowerCase();
+  return normalized === "admin" || normalized === "administrator" || normalized === "franchise";
+};
+
 export const list = async (req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> => {
   try {
     const { isFranchise, userFranchiseId, effectiveFranchiseId } = getTenantScope(req);
@@ -103,12 +108,26 @@ export const create = async (req: AuthenticatedRequest, res: Response, next: Nex
       franchiseId = data.franchiseId.trim();
     }
 
+    const email = data.email && typeof data.email === "string" && data.email.trim()
+      ? data.email.toLowerCase().trim()
+      : null;
+
+    if (email) {
+      const existingUser = await prisma.user.findUnique({ where: { email } });
+      if (existingUser && isProtectedLoginRole(existingUser.role)) {
+        res.status(409).json({
+          message: "This email already belongs to an admin or franchise account and cannot be used for a doctor.",
+        });
+        return;
+      }
+    }
+
     const created = await prisma.doctor.create({
       data: {
         name: data.name.trim(),
         specialty: data.specialty && typeof data.specialty === "string" && data.specialty.trim() ? data.specialty.trim() : null,
         phone: data.phone && typeof data.phone === "string" ? data.phone.trim() : "",
-        email: data.email && typeof data.email === "string" && data.email.trim() ? data.email.toLowerCase().trim() : null,
+        email,
         city: data.city || null,
         gender: data.gender || null,
         experience: data.experience || null,
@@ -122,9 +141,9 @@ export const create = async (req: AuthenticatedRequest, res: Response, next: Nex
       },
     });
 
-    // If email is provided, create/update User login account with credentials
-    if (data.email && typeof data.email === "string" && data.email.trim()) {
-      const email = data.email.toLowerCase().trim();
+    // If email is provided, create/update User login account with credentials.
+    // Admin and franchise accounts are rejected above and are never rewritten here.
+    if (email) {
       const password = data.password || "Doctor@123";
       const passwordHash = await hashPassword(password);
       const initials = data.name
@@ -188,6 +207,17 @@ export const update = async (req: AuthenticatedRequest, res: Response, next: Nex
     if (isFranchise && existing.franchiseId !== userFranchiseId) {
       res.status(403).json({ message: "Access denied. Cannot update doctor belonging to another franchise." });
       return;
+    }
+
+    if (data.email && typeof data.email === "string" && data.email.trim()) {
+      const email = data.email.toLowerCase().trim();
+      const existingUser = await prisma.user.findUnique({ where: { email } });
+      if (existingUser && isProtectedLoginRole(existingUser.role)) {
+        res.status(409).json({
+          message: "This email already belongs to an admin or franchise account and cannot be used for a doctor.",
+        });
+        return;
+      }
     }
 
     const updated = await prisma.doctor.update({
@@ -275,7 +305,10 @@ export const remove = async (req: AuthenticatedRequest, res: Response, next: Nex
     }
 
     if (doctor?.email) {
-      await prisma.user.deleteMany({ where: { email: doctor.email } }).catch(() => {});
+      const linkedUser = await prisma.user.findUnique({ where: { email: doctor.email } });
+      if (linkedUser && linkedUser.role === "Doctor") {
+        await prisma.user.delete({ where: { id: linkedUser.id } }).catch(() => {});
+      }
     }
     await prisma.doctor.delete({ where: { id } });
     res.json({ message: "Doctor deleted successfully" });
