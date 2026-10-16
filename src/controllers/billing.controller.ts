@@ -42,7 +42,26 @@ export const list = async (req: AuthenticatedRequest, res: Response, next: NextF
       },
       orderBy: { createdAt: "desc" },
     });
-    res.json({ data: invoices });
+
+    const sanitizedInvoices = invoices.map((inv) => {
+      let parsedItems: any[] = [];
+      if (Array.isArray(inv.items)) {
+        parsedItems = inv.items;
+      } else if (typeof inv.items === "string") {
+        try { parsedItems = JSON.parse(inv.items); } catch { parsedItems = []; }
+      }
+      if (parsedItems.length > 0) {
+        const itemSubtotal = parsedItems.reduce(
+          (sum: number, it: any) => sum + (Number(it.quantity) || 1) * (Number(it.mrp) || 0),
+          0
+        );
+        const expectedTotal = Math.max(0, itemSubtotal - (Number(inv.discount) || 0) + (Number(inv.sgst) || 0) + (Number(inv.cgst) || 0));
+        return { ...inv, total: expectedTotal };
+      }
+      return inv;
+    });
+
+    res.json({ data: sanitizedInvoices });
   } catch (error) {
     next(error);
   }
@@ -69,6 +88,29 @@ export const getById = async (req: AuthenticatedRequest, res: Response, next: Ne
     if (isFranchise && invoice.franchiseId !== userFranchiseId) {
       res.status(403).json({ message: "Access denied. Invoice belongs to another franchise." });
       return;
+    }
+
+    if (invoice.items) {
+      let parsedItems: any[] = [];
+      if (Array.isArray(invoice.items)) {
+        parsedItems = invoice.items;
+      } else if (typeof invoice.items === "string") {
+        try { parsedItems = JSON.parse(invoice.items); } catch { parsedItems = []; }
+      }
+      if (parsedItems.length > 0) {
+        const itemSubtotal = parsedItems.reduce(
+          (sum: number, it: any) => sum + (Number(it.quantity) || 1) * (Number(it.mrp) || 0),
+          0
+        );
+        const expectedTotal = Math.max(0, itemSubtotal - (Number(invoice.discount) || 0) + (Number(invoice.sgst) || 0) + (Number(invoice.cgst) || 0));
+        if (invoice.total !== expectedTotal) {
+          await prisma.invoice.update({
+            where: { id: invoice.id },
+            data: { total: expectedTotal },
+          });
+          invoice.total = expectedTotal;
+        }
+      }
     }
 
     res.json({ data: invoice });
@@ -203,18 +245,29 @@ export const create = async (req: AuthenticatedRequest, res: Response, next: Nex
           {
             description: data.itemDescription,
             quantity: Number(data.itemQuantity) || 1,
-            mrp: Number(data.itemMrp) || Number(data.total) || 450,
+            mrp: data.itemMrp !== undefined && data.itemMrp !== null && !isNaN(Number(data.itemMrp))
+              ? Number(data.itemMrp)
+              : (data.total !== undefined && data.total !== null && !isNaN(Number(data.total)) ? Number(data.total) : 0),
           },
         ];
       } else {
-        items = [{ description: "Diagnostic Pathology Services", quantity: 1, mrp: Number(data.total) || 450 }];
+        items = [{ 
+          description: "Diagnostic Pathology Services", 
+          quantity: 1, 
+          mrp: data.total !== undefined && data.total !== null && !isNaN(Number(data.total)) ? Number(data.total) : 0 
+        }];
       }
     }
 
     const discount = Number(data.discount) || 0;
     const sgst = Number(data.sgst) || 0;
     const cgst = Number(data.cgst) || 0;
-    const total = Number(data.total) || 450;
+
+    const subtotal = items.reduce(
+      (sum: number, it: any) => sum + (Number(it.quantity) || 1) * (Number(it.mrp) || 0),
+      0
+    );
+    const total = Math.max(0, subtotal - discount + sgst + cgst);
 
     const created = await prisma.invoice.create({
       data: {
@@ -327,6 +380,22 @@ export const update = async (req: AuthenticatedRequest, res: Response, next: Nex
       }
     }
 
+    const effectiveItems = data.items !== undefined ? data.items : existing.items;
+    let parsedItems: any[] = [];
+    if (Array.isArray(effectiveItems)) {
+      parsedItems = effectiveItems;
+    } else if (typeof effectiveItems === "string") {
+      try { parsedItems = JSON.parse(effectiveItems); } catch { parsedItems = []; }
+    }
+    const effDiscount = data.discount !== undefined ? (Number(data.discount) || 0) : (Number(existing.discount) || 0);
+    const effSgst = data.sgst !== undefined ? (Number(data.sgst) || 0) : (Number(existing.sgst) || 0);
+    const effCgst = data.cgst !== undefined ? (Number(data.cgst) || 0) : (Number(existing.cgst) || 0);
+    const subtotal = parsedItems.reduce(
+      (sum: number, it: any) => sum + (Number(it.quantity) || 1) * (Number(it.mrp) || 0),
+      0
+    );
+    const updatedTotal = Math.max(0, subtotal - effDiscount + effSgst + effCgst);
+
     const updated = await prisma.invoice.update({
       where: { id },
       data: {
@@ -339,7 +408,7 @@ export const update = async (req: AuthenticatedRequest, res: Response, next: Nex
         discount: data.discount !== undefined ? Number(data.discount) : undefined,
         sgst: data.sgst !== undefined ? Number(data.sgst) : undefined,
         cgst: data.cgst !== undefined ? Number(data.cgst) : undefined,
-        total: data.total !== undefined ? Number(data.total) : undefined,
+        total: updatedTotal,
         paymentStatus: data.paymentStatus,
         addedBy: data.addedBy,
       },
