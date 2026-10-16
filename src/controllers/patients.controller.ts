@@ -163,23 +163,21 @@ export const create = async (req: AuthenticatedRequest, res: Response, next: Nex
       res.status(400).json({ message: "Patient name is required" });
       return;
     }
-    if (!data.phone || typeof data.phone !== "string" || !data.phone.trim()) {
-      res.status(400).json({ message: "Patient phone number is required" });
-      return;
-    }
     if (!data.pincode || typeof data.pincode !== "string" || !data.pincode.trim()) {
       res.status(400).json({ message: "Pincode is required" });
       return;
     }
 
-    const cleanPhone = data.phone.trim();
-    // 1. Unique Phone Number Database Validation
-    const existingByPhone = await prisma.patient.findFirst({
-      where: { phone: cleanPhone },
-    });
-    if (existingByPhone) {
-      res.status(409).json({ message: "This Phone Number already exists." });
-      return;
+    // Phone is optional. The column is NOT NULL, so a missing number is stored as blank text.
+    const cleanPhone = typeof data.phone === "string" ? data.phone.trim() : "";
+    if (cleanPhone) {
+      const existingByPhone = await prisma.patient.findFirst({
+        where: { phone: cleanPhone },
+      });
+      if (existingByPhone) {
+        res.status(409).json({ message: "This Phone Number already exists." });
+        return;
+      }
     }
 
     // Optional email uniqueness check if provided
