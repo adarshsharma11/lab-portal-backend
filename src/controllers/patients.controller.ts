@@ -100,6 +100,13 @@ export const getNextCode = async (req: AuthenticatedRequest, res: Response, next
   }
 };
 
+/** Accepts a number or text such as "6 months" and stores it as text. */
+const normalizePatientAge = (value: unknown, fallback = "30"): string => {
+  if (typeof value === "number" && Number.isFinite(value)) return String(value);
+  if (typeof value === "string" && value.trim()) return value.trim();
+  return fallback;
+};
+
 /**
  * Resequences all existing patients for a specific franchise to BL-01, BL-02, BL-03...
  * based on their creation order (createdAt: asc) without leaving gaps.
@@ -264,7 +271,7 @@ export const create = async (req: AuthenticatedRequest, res: Response, next: Nex
       data: {
         patientCode,
         name: data.name.trim(),
-        age: Number(data.age) || 30,
+        age: normalizePatientAge(data.age),
         sex: data.sex || "Female",
         phone: cleanPhone,
         email: data.email ? data.email.trim() : null,
@@ -395,12 +402,10 @@ export const update = async (req: AuthenticatedRequest, res: Response, next: Nex
       }
     }
 
-    const updated = await prisma.patient.update({
-      where: { id },
-      data: {
-        name: data.name ? data.name.trim() : undefined,
-        age: data.age !== undefined ? Number(data.age) : undefined,
-        sex: data.sex,
+    const patientUpdate: Prisma.PatientUncheckedUpdateInput = {
+      name: data.name ? data.name.trim() : undefined,
+      age: data.age !== undefined ? normalizePatientAge(data.age, "") : undefined,
+      sex: data.sex,
         phone: data.phone ? data.phone.trim() : undefined,
         email: data.email !== undefined ? (data.email ? data.email.trim() : null) : undefined,
         city: data.city !== undefined ? data.city : undefined,
