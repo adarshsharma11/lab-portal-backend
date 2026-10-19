@@ -402,10 +402,12 @@ export const update = async (req: AuthenticatedRequest, res: Response, next: Nex
       }
     }
 
-    const patientUpdate: Prisma.PatientUncheckedUpdateInput = {
-      name: data.name ? data.name.trim() : undefined,
-      age: data.age !== undefined ? normalizePatientAge(data.age, "") : undefined,
-      sex: data.sex,
+    const updated = await prisma.patient.update({
+      where: { id },
+      data: {
+        name: data.name ? data.name.trim() : undefined,
+        age: data.age !== undefined ? normalizePatientAge(data.age, "") : "0",
+        sex: data.sex,
         phone: data.phone ? data.phone.trim() : undefined,
         email: data.email !== undefined ? (data.email ? data.email.trim() : null) : undefined,
         city: data.city !== undefined ? data.city : undefined,
